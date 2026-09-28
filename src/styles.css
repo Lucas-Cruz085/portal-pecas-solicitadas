@@ -1,0 +1,173 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: "Ubuntu", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-ring-offset-background: var(--background);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+/* JCB NORMAQ — corporate light content theme with dark shell surfaces. */
+:root {
+  --radius: 0.5rem;
+  --background: oklch(0.928 0.008 90); /* #EDEBE6 */
+  --foreground: oklch(0.21 0.015 250);
+  --card: oklch(0.955 0.007 90); /* #F4F2EE */
+  --card-foreground: oklch(0.21 0.015 250);
+  --popover: oklch(0.97 0.006 90);
+  --popover-foreground: oklch(0.21 0.015 250);
+  --primary: oklch(0.795 0.16 82); /* ~#F5A800 */
+  --primary-foreground: oklch(0.2 0.02 250);
+  --secondary: oklch(0.9 0.01 90);
+  --secondary-foreground: oklch(0.21 0.015 250);
+  --muted: oklch(0.9 0.008 90);
+  --muted-foreground: oklch(0.48 0.015 250);
+  --accent: oklch(0.905 0.012 85);
+  --accent-foreground: oklch(0.21 0.015 250);
+  --destructive: oklch(0.577 0.245 27.325); /* #DC2626 */
+  --destructive-foreground: oklch(0.98 0 0);
+  --warning: oklch(0.7 0.19 50); /* #F97316 */
+  --warning-foreground: oklch(0.98 0 0);
+  --success: oklch(0.62 0.17 150); /* #16A34A */
+  --success-foreground: oklch(0.98 0 0);
+  --border: oklch(0.855 0.01 85);
+  --input: oklch(0.855 0.01 85);
+  --ring: oklch(0.795 0.16 82);
+  --sidebar: oklch(0.19 0 0); /* #161616 */
+  --sidebar-foreground: oklch(0.83 0 0);
+  --sidebar-primary: oklch(0.82 0.165 85); /* #FDB100 */
+  --sidebar-primary-foreground: oklch(0.17 0.01 250);
+  --sidebar-accent: oklch(0.26 0 0);
+  --sidebar-accent-foreground: oklch(0.95 0 0);
+  --sidebar-border: oklch(0.27 0 0);
+  --sidebar-ring: oklch(0.82 0.165 85);
+}
+
+/* Dark surfaces (login, dark cards). */
+.surface-dark {
+  --background: oklch(0.145 0.012 250); /* ~#0B111A */
+  --foreground: oklch(0.93 0.005 250);
+  --card: oklch(0.185 0.014 250);
+  --card-foreground: oklch(0.93 0.005 250);
+  --popover: oklch(0.19 0.014 250);
+  --popover-foreground: oklch(0.93 0.005 250);
+  --muted: oklch(0.25 0.012 250);
+  --muted-foreground: oklch(0.62 0.012 250);
+  --accent: oklch(0.25 0.014 250);
+  --accent-foreground: oklch(0.95 0.005 250);
+  --border: oklch(0.29 0.014 250);
+  --input: oklch(0.29 0.014 250);
+  background-color: var(--background);
+  color: var(--foreground);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+    padding-bottom: 1.75rem;
+  }
+}
+
+@utility header-gradient {
+  background: linear-gradient(100deg, oklch(0.84 0.168 86), oklch(0.77 0.155 78));
+}
+
+@utility table-dense {
+  & th {
+    @apply h-8 px-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap;
+  }
+  & td {
+    @apply px-2 py-1 text-[12.5px] align-middle;
+  }
+  & tbody tr {
+    @apply border-b border-border/70 hover:bg-accent/60;
+  }
+}
+
+@utility num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+@utility panel {
+  @apply rounded-lg border border-border bg-card shadow-sm;
+}
+
+@utility card-accent-top {
+  @apply border-t-4 border-t-primary;
+}
+
+@utility stock-zero {
+  @apply text-destructive font-semibold;
+}
+
+@utility rank-hot {
+  @apply bg-destructive/15 text-destructive;
+}
+
+@utility rank-warm {
+  @apply bg-warning/15 text-warning;
+}
+
+@utility stat-label {
+  @apply text-[10.5px] font-medium uppercase tracking-widest text-muted-foreground;
+}
+
+/* Esconde a barra de rolagem mantendo a rolagem funcional */
+html {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+}
+html::-webkit-scrollbar,
+body::-webkit-scrollbar,
+*::-webkit-scrollbar {
+  display: none; /* Chrome/Safari */
+}
+* {
+  scrollbar-width: none;
+}

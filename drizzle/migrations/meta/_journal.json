@@ -1,0 +1,41 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1789739529082,
+      "tag": "0000_demanda_pecas_schema",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1789739597818,
+      "tag": "0001_demand_ranking_definer",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789779821684,
+      "tag": "0002_user_permissions",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1789997041629,
+      "tag": "0003_allow_all_active_users_read_stock",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790167102223,
+      "tag": "0004_panels_and_password_flag",
+      "breakpoints": true
+    }
+  ]
+}
