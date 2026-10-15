@@ -11,7 +11,6 @@ import {
 } from "lucide-react";
 import { useEffect, type ReactNode } from "react";
 import { useMe, useSignOut } from "@/hooks/use-me";
-import logoAsset from "@/assets/LOGO_NMQ.png.asset.json";
 
 type Item = { to: string; label: string; icon: LucideIcon; admin?: boolean };
 
@@ -41,7 +40,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <aside className="fixed inset-y-0 left-0 z-40 flex h-full w-56 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
         <div className="flex items-center gap-2 border-b border-sidebar-border px-3 py-3">
           <div className="flex h-10 w-full items-center justify-center rounded bg-white px-2">
-            <img src={logoAsset.url} alt="NORMAQ JCB" className="h-7 w-auto max-w-full object-contain" />
+            <img src="/brand/LOGO_NMQ.png" alt="NORMAQ JCB" className="h-7 w-auto max-w-full object-contain" />
           </div>
         </div>
         <div className="border-b border-sidebar-border px-4 py-2">

@@ -7,8 +7,6 @@ import { forgotPassword, login } from "@/lib/auth.functions";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import wallpaperAsset from "@/assets/JCB_WPP_1.jpg.asset.json";
-import logoAsset from "@/assets/LOGO_NMQ.png.asset.json";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({
@@ -90,11 +88,11 @@ function AuthPage() {
 
   return (
     <div className="surface-dark relative flex min-h-screen items-center justify-end overflow-hidden bg-background p-4 md:p-10">
-      <img src={wallpaperAsset.url} alt="Retroescavadeira JCB" className="absolute inset-0 h-full w-full object-cover" />
+      <img src="/brand/JCB_WPP_1.jpg" alt="Retroescavadeira JCB" className="absolute inset-0 h-full w-full object-cover" />
       <div className="absolute inset-0 bg-background/65" />
       <form onSubmit={submit} className="panel relative z-10 w-full max-w-sm border-border bg-card/95 p-6 shadow-2xl backdrop-blur-sm md:mr-[8vw]">
         <div className="mb-5 rounded-md bg-white p-3">
-          <img src={logoAsset.url} alt="NORMAQ JCB" className="mx-auto h-12 w-auto max-w-full object-contain" />
+          <img src="/brand/LOGO_NMQ.png" alt="NORMAQ JCB" className="mx-auto h-12 w-auto max-w-full object-contain" />
         </div>
         <div className="mb-5 text-center">
           <div className="text-lg font-semibold">Acesso restrito</div>
