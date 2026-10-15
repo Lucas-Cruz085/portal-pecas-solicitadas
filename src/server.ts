@@ -45,12 +45,51 @@ function isH3SwallowedErrorBody(body: string): boolean {
   }
 }
 
+function applyWorkerEnv(env: unknown) {
+  if (!env || typeof env !== "object") return;
+  const target = process.env as Record<string, string | undefined>;
+  for (const [key, value] of Object.entries(env as Record<string, unknown>)) {
+    if (typeof value === "string" && !target[key]) target[key] = value;
+  }
+}
+
+function publicSupabaseConfig() {
+  const url = process.env["SUPABASE_URL"] || process.env["VITE_SUPABASE_URL"] || "";
+  const key =
+    process.env["SUPABASE_PUBLISHABLE_KEY"] || process.env["VITE_SUPABASE_PUBLISHABLE_KEY"] || "";
+  return { url, key };
+}
+
+async function injectPublicSupabaseConfig(response: Response): Promise<Response> {
+  const type = response.headers.get("content-type") ?? "";
+  if (!type.includes("text/html")) return response;
+  const { url, key } = publicSupabaseConfig();
+  if (!url || !key) return response;
+  const html = await response.text();
+  if (html.includes("__SUPABASE_PUBLIC__")) {
+    return new Response(html, response);
+  }
+  const payload = JSON.stringify({ url, key }).replace(/</g, "\\u003c");
+  const tag = "<script>window.__SUPABASE_PUBLIC__=" + payload + "</script>";
+  const next = html.includes("</head>") ? html.replace("</head>", tag + "</head>") : tag + html;
+  const headers = new Headers(response.headers);
+  headers.delete("content-length");
+  return new Response(next, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     try {
+      applyWorkerEnv(env);
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);
-      return withSecurityHeaders(await normalizeCatastrophicSsrResponse(response));
+      return injectPublicSupabaseConfig(
+        withSecurityHeaders(await normalizeCatastrophicSsrResponse(response)),
+      );
     } catch (error) {
       console.error(error);
       return withSecurityHeaders(

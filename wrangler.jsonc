@@ -2,6 +2,7 @@
   // Nitro le este arquivo no build e grava .output/server/wrangler.json.
   // O nome fica demandapecas. main e assets daqui valem para o deploy na raiz.
   "name": "demandapecas",
+  "workers_dev": true,
   "main": ".output/server/index.mjs",
   "compatibility_date": "2026-10-12",
   "compatibility_flags": ["nodejs_compat"],

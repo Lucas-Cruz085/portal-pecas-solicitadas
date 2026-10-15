@@ -38,7 +38,7 @@ export async function loadCaller(
     client.rpc("has_role", { _user_id: userId, _role: "admin" }),
   ]);
   if (!profile) throw new Error("Perfil não encontrado");
-  if (!profile.is_active) throw new Error("Usuário desativado");
+  if (profile.is_active === false) throw new Error("Usuário desativado");
   if (profile.needs_password_change && !options?.allowPendingPassword) {
     throw new Error("Altere sua senha para continuar.");
   }

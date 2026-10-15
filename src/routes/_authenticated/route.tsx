@@ -7,12 +7,12 @@ export const Route = createFileRoute("/_authenticated")({
   beforeLoad: async ({ location }) => {
     const { data, error } = await supabase.auth.getUser();
     if (error || !data.user) throw redirect({ to: "/auth" });
-    const { data: profile } = await supabase
+    const { data: profile, error: profileError } = await supabase
       .from("profiles")
-      .select("is_active, needs_password_change")
+      .select("needs_password_change")
       .eq("id", data.user.id)
       .maybeSingle();
-    if (!profile || !profile.is_active) {
+    if (profileError || !profile) {
       await supabase.auth.signOut();
       throw redirect({ to: "/auth" });
     }

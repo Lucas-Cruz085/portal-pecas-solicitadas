@@ -28,11 +28,17 @@ function createSupabaseFetch(supabaseKey: string): typeof fetch {
 }
 
 
+function runtimePublicConfig(): { url?: string; key?: string } {
+  if (typeof window === "undefined") return {};
+  return (window as Window & { __SUPABASE_PUBLIC__?: { url?: string; key?: string } }).__SUPABASE_PUBLIC__ ?? {};
+}
+
 function createSupabaseClient() {
-  // Use import.meta.env for client-side (Vite build-time replacement)
-  // Fall back to process.env for SSR (server-side rendering)
-  const SUPABASE_URL = import.meta.env['VITE_SUPABASE_URL'] || process.env['SUPABASE_URL'];
-  const SUPABASE_PUBLISHABLE_KEY = import.meta.env['VITE_SUPABASE_PUBLISHABLE_KEY'] || process.env['SUPABASE_PUBLISHABLE_KEY'];
+  // The Worker injects the public config into the HTML. Vite only inlines
+  // VITE_* when those variables exist at build time.
+  const runtime = runtimePublicConfig();
+  const SUPABASE_URL = runtime.url || import.meta.env['VITE_SUPABASE_URL'] || process.env['SUPABASE_URL'];
+  const SUPABASE_PUBLISHABLE_KEY = runtime.key || import.meta.env['VITE_SUPABASE_PUBLISHABLE_KEY'] || process.env['SUPABASE_PUBLISHABLE_KEY'];
 
   if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
     const missing = [

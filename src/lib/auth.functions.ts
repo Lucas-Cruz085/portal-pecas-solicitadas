@@ -53,18 +53,18 @@ export const login = createServerFn({ method: "POST" })
 
     const { data: profile } = await supabaseAdmin
       .from("profiles")
-      .select("id, username, is_active")
+      .select("id, username")
       .eq("id", signed.user.id)
       .maybeSingle();
-    if (!profile?.is_active) {
+    if (!profile) {
       await writeAudit(supabaseAdmin, {
         userId: signed.user.id,
-        username: profile?.username ?? username,
+        username,
         action: "login_falho",
         entity: "sessao",
-        after: { motivo: "conta_desativada" },
+        after: { motivo: "perfil_ausente" },
       });
-      throw new Error("Conta desativada. Fale com o administrador.");
+      throw new Error("Perfil não encontrado. Fale com o administrador.");
     }
 
     await writeAudit(supabaseAdmin, {
@@ -92,7 +92,7 @@ export const forgotPassword = createServerFn({ method: "POST" })
 
     const { data: prof } = await supabaseAdmin
       .from("profiles")
-      .select("id, username, is_active")
+      .select("id, username")
       .eq("username", username)
       .maybeSingle();
     await writeAudit(supabaseAdmin, {
@@ -118,7 +118,9 @@ export const getMe = createServerFn({ method: "GET" })
     const panels = isAdmin
       ? ([...PANELS] as Panel[])
       : ((perms ?? []).filter((p) => p.allowed).map((p) => p.panel) as Panel[]);
-    return { ...profile, isAdmin, role: isAdmin ? ("admin" as const) : ("consultor" as const), panels };
+    const row = profile as typeof profile & { display_name?: string | null };
+    const full_name = profile.full_name || row.display_name || profile.username;
+    return { ...profile, full_name, isAdmin, role: isAdmin ? ("admin" as const) : ("consultor" as const), panels };
   });
 
 export const recordSessionEvent = createServerFn({ method: "POST" })
