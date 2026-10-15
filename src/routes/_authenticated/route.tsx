@@ -10,7 +10,7 @@ export const Route = createFileRoute("/_authenticated")({
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
       .select("needs_password_change")
-      .eq("id", data.user.id)
+      .or(`id.eq.${data.user.id},user_id.eq.${data.user.id}`)
       .maybeSingle();
     if (profileError || !profile) {
       await supabase.auth.signOut();

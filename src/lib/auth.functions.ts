@@ -30,8 +30,16 @@ export const login = createServerFn({ method: "POST" })
     assertRateLimit(`login:ip:${ip}`, 40, 15 * 60 * 1000);
 
     const auth = createEphemeralAuth();
+    const { data: resolvedEmail } = await supabaseAdmin.rpc(
+      "get_email_by_username" as never,
+      { _username: username } as never,
+    );
+    const email =
+      typeof resolvedEmail === "string" && resolvedEmail.includes("@")
+        ? resolvedEmail
+        : usernameToEmail(username);
     const { data: signed, error } = await auth.auth.signInWithPassword({
-      email: usernameToEmail(username),
+      email,
       password: data.password,
     });
     if (error || !signed.session || !signed.user) {
@@ -54,7 +62,7 @@ export const login = createServerFn({ method: "POST" })
     const { data: profile } = await supabaseAdmin
       .from("profiles")
       .select("id, username")
-      .eq("id", signed.user.id)
+      .or(`id.eq.${signed.user.id},user_id.eq.${signed.user.id}`)
       .maybeSingle();
     if (!profile) {
       await writeAudit(supabaseAdmin, {

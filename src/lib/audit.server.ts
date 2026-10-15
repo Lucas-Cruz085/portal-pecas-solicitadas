@@ -34,7 +34,7 @@ export async function loadCaller(
   options?: { allowPendingPassword?: boolean },
 ) {
   const [{ data: profile }, { data: isAdmin }] = await Promise.all([
-    client.from("profiles").select("*").eq("id", userId).maybeSingle(),
+    client.from("profiles").select("*").or(`id.eq.${userId},user_id.eq.${userId}`).maybeSingle(),
     client.rpc("has_role", { _user_id: userId, _role: "admin" }),
   ]);
   if (!profile) throw new Error("Perfil não encontrado");
