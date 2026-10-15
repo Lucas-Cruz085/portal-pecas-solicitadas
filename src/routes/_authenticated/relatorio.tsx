@@ -39,17 +39,30 @@ function Relatorio() {
   const [editing, setEditing] = useState<Req | null>(null);
 
   const profiles = useQuery({
-    queryKey: ["profiles"],
-    queryFn: async () =>
-      (await supabase.from("profiles").select("id, username, full_name")).data ?? [],
+    queryKey: ["profiles", "names"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("profiles").select("*");
+      if (error) throw error;
+      return (data ?? []).map((row) => {
+        const p = row as typeof row & { user_id?: string | null; display_name?: string | null };
+        const name = (p.display_name || p.full_name || p.username || "").trim();
+        return { id: p.id, user_id: p.user_id || p.id, username: p.username, name };
+      });
+    },
   });
-  const nameOf = useMemo(
-    () => new Map((profiles.data ?? []).map((p) => [p.id, p.full_name])),
-    [profiles.data],
-  );
+  const nameOf = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const p of profiles.data ?? []) {
+      if (!p.name) continue;
+      map.set(p.id, p.name);
+      map.set(p.user_id, p.name);
+    }
+    return map;
+  }, [profiles.data]);
 
   const range = { from: from ? startOfDayBR(from) : null, to: to ? endOfDayBR(to) : null };
-  const userFilter = me?.isAdmin ? vendor || null : (me?.id ?? null);
+  const ownId = (me as { user_id?: string | null } | undefined)?.user_id || me?.id || null;
+  const userFilter = me?.isAdmin ? vendor || null : ownId;
 
   const requests = useQuery({
     queryKey: ["requests", "report", range, userFilter],
@@ -281,8 +294,8 @@ function Relatorio() {
             >
               <option value="">Todos</option>
               {profiles.data?.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.full_name}
+                <option key={p.user_id} value={p.user_id}>
+                  {p.name}
                 </option>
               ))}
             </select>
@@ -409,6 +422,7 @@ function Relatorio() {
                   <th>Data</th>
                   <th>Referência</th>
                   <th>Descrição</th>
+                  <th>Filial</th>
                   <th>Cliente</th>
                   <th>Vendedor</th>
                   <th className="text-right">Qtd</th>
@@ -419,14 +433,14 @@ function Relatorio() {
               <tbody>
                 {requests.isLoading && (
                   <tr>
-                    <td colSpan={8} className="py-5 text-center text-muted-foreground">
+                    <td colSpan={9} className="py-5 text-center text-muted-foreground">
                       Carregando…
                     </td>
                   </tr>
                 )}
                 {filtered.length === 0 && !requests.isLoading && (
                   <tr>
-                    <td colSpan={8} className="py-5 text-center text-muted-foreground">
+                    <td colSpan={9} className="py-5 text-center text-muted-foreground">
                       Nenhuma solicitação no período.
                     </td>
                   </tr>
@@ -446,6 +460,9 @@ function Relatorio() {
                     </td>
                     <td className="max-w-48 truncate" title={r.description ?? ""}>
                       {r.description || "—"}
+                    </td>
+                    <td className="max-w-40 truncate whitespace-nowrap" title={r.branch ?? ""}>
+                      {r.branch || "Sem filial"}
                     </td>
                     <td className="max-w-36 truncate">{r.customer_name ?? "—"}</td>
                     <td className="whitespace-nowrap">{nameOf.get(r.user_id) ?? "—"}</td>

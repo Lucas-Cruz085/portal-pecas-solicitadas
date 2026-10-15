@@ -27,14 +27,23 @@ export const setUserPermissions = createServerFn({ method: "POST" })
     if (!isAdmin) throw new Error("Acesso negado");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
+    const { data: owner } = await supabaseAdmin
+      .from("profiles")
+      .select("*")
+      .or(`id.eq.${data.userId},user_id.eq.${data.userId}`)
+      .maybeSingle();
+    const authId =
+      (owner as { user_id?: string | null; id?: string } | null)?.user_id ||
+      (owner as { id?: string } | null)?.id ||
+      data.userId;
     const { data: before } = await supabaseAdmin
       .from("user_permissions")
       .select("panel, allowed")
-      .eq("user_id", data.userId);
+      .eq("user_id", authId);
     const beforeSet = (before ?? []).filter((p) => p.allowed).map((p) => p.panel);
 
     const { error: permErr } = await supabaseAdmin.from("user_permissions").upsert(
-      PANELS.map((panel) => ({ user_id: data.userId, panel, allowed: data.panels.includes(panel), updated_at: new Date().toISOString() })),
+      PANELS.map((panel) => ({ user_id: authId, panel, allowed: data.panels.includes(panel), updated_at: new Date().toISOString() })),
       { onConflict: "user_id,panel" },
     );
     if (permErr) throw new Error("Falha ao salvar as permissões");
@@ -44,7 +53,7 @@ export const setUserPermissions = createServerFn({ method: "POST" })
       username: profile.username,
       action: "alterar_permissoes",
       entity: "usuario",
-      entityId: data.userId,
+      entityId: authId,
       before: { paineis: beforeSet },
       after: { paineis: data.panels },
     }, true);

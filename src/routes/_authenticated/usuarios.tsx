@@ -84,13 +84,15 @@ function Usuarios() {
     );
   }, [users.data, q]);
 
-  const panelsOf = (id: string) =>
-    (perms.data ?? []).filter((p) => p.user_id === id && p.allowed).map((p) => p.panel as Panel);
+  const panelsOf = (u: UserRow) => {
+    const ids = new Set([u.id, u.auth_id]);
+    return (perms.data ?? []).filter((p) => ids.has(p.user_id) && p.allowed).map((p) => p.panel as Panel);
+  };
 
   const openEdit = (u: UserRow) => {
     setEdit(u);
     setEf({ full_name: u.full_name, email: u.email ?? "", role: u.role as Role });
-    setEp(u.role === "admin" ? [...PANELS] : panelsOf(u.id));
+    setEp(u.role === "admin" ? [...PANELS] : panelsOf(u));
   };
 
   const invalidate = () => {
@@ -109,7 +111,7 @@ function Usuarios() {
     onError: (e: Error) => toast.error(e.message),
   });
   const mPerms = useMutation({
-    mutationFn: () => savePerms({ data: { userId: edit!.id, panels: ep } }),
+    mutationFn: () => savePerms({ data: { userId: edit!.auth_id, panels: ep } }),
     onSuccess: () => { toast.success("Permissões salvas"); invalidate(); },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -172,7 +174,7 @@ function Usuarios() {
                   <div className="flex items-center justify-end gap-2">
                     <button className="rounded p-1 hover:bg-accent" title="Editar" onClick={() => openEdit(u)}><Pencil className="h-3.5 w-3.5" /></button>
                     <button className="rounded p-1 hover:bg-accent" title="Resetar senha" onClick={() => setConfirmReset(u)}><KeyRound className="h-3.5 w-3.5" /></button>
-                    <Switch checked={u.is_active} disabled={u.id === me?.id || mToggle.isPending} onCheckedChange={() => mToggle.mutate(u)} title="Ativar/desativar" />
+                    <Switch checked={u.is_active} disabled={u.id === me?.id || u.auth_id === me?.id || mToggle.isPending} onCheckedChange={() => mToggle.mutate(u)} title="Ativar/desativar" />
                   </div>
                 </td>
               </tr>
