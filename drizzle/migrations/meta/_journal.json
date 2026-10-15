@@ -36,6 +36,13 @@
       "when": 1790167102223,
       "tag": "0004_panels_and_password_flag",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791571200000,
+      "tag": "0005_security_hardening",
+      "breakpoints": true
     }
   ]
 }

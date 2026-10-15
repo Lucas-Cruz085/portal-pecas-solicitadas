@@ -1,10 +1,16 @@
 export type ExportTable = { title: string; header: string[]; rows: (string | number)[][] };
 
+export function asExportCell(value: string | number): string | number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  const text = String(value ?? "");
+  return /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
+}
+
 export async function exportXlsx(filename: string, tables: ExportTable[]) {
   const XLSX = await import("xlsx");
   const wb = XLSX.utils.book_new();
   for (const t of tables) {
-    const ws = XLSX.utils.aoa_to_sheet([t.header, ...t.rows]);
+    const ws = XLSX.utils.aoa_to_sheet([t.header.map((cell) => asExportCell(cell)), ...t.rows.map((row) => row.map((cell) => asExportCell(cell)))]);
     ws["!cols"] = t.header.map(() => ({ wch: 20 }));
     XLSX.utils.book_append_sheet(wb, ws, t.title.slice(0, 31));
   }
@@ -25,8 +31,8 @@ export async function exportPdf(filename: string, heading: string, subtitle: str
     doc.text(t.title, 40, y);
     autoTable(doc, {
       startY: y + 6,
-      head: [t.header],
-      body: t.rows.map((r) => r.map((c) => String(c ?? ""))),
+      head: [t.header.map((cell) => String(asExportCell(cell)))],
+      body: t.rows.map((r) => r.map((c) => String(asExportCell(c) ?? ""))),
       styles: { fontSize: 8, cellPadding: 3 },
       headStyles: { fillColor: [245, 168, 0], textColor: 20 },
       margin: { left: 40, right: 40 },

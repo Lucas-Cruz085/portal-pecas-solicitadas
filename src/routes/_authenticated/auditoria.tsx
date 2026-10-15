@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { requirePanel } from "@/lib/route-guard";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -9,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { endOfDayBR, formatDateTime, startOfDayBR } from "@/lib/datetime";
 
 export const Route = createFileRoute("/_authenticated/auditoria")({
+  beforeLoad: () => requirePanel("auditoria"),
   head: () => ({ meta: [{ title: "Auditoria — Demanda de Peças" }] }),
   component: () => (
     <AdminOnly>
@@ -26,6 +28,14 @@ const ACTIONS: Record<string, string> = {
   criar_usuario: "Criação de usuário",
   editar_usuario: "Edição de usuário",
   redefinir_senha: "Redefinição de senha",
+  login: "Entrada",
+  logout: "Saída",
+  login_falho: "Falha de entrada",
+  esqueci_senha: "Pedido de senha esquecida",
+  tentativa_esqueci_senha: "Pedido de senha esquecida",
+  resetar_senha_padrao: "Senha temporária gerada",
+  alterar_propria_senha: "Alteração da própria senha",
+  alterar_permissoes: "Alteração de permissões",
 };
 
 function Diff({ before, after }: { before: unknown; after: unknown }) {

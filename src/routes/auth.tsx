@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { LockKeyhole, UserRound } from "lucide-react";
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
-import { forgotPassword } from "@/lib/auth.functions";
+import { forgotPassword, login } from "@/lib/auth.functions";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -22,6 +22,20 @@ export const Route = createFileRoute("/auth")({
   component: AuthPage,
 });
 
+function messageOf(error: unknown, fallback: string) {
+  const message = error instanceof Error ? error.message : "";
+  if (
+    message.includes("Muitas tentativas") ||
+    message.includes("Usuário ou senha inválidos") ||
+    message.includes("Conta desativada") ||
+    message.includes("Mínimo 3 caracteres") ||
+    message.includes("Use apenas letras")
+  ) {
+    return message;
+  }
+  return fallback;
+}
+
 function AuthPage() {
   const navigate = useNavigate();
   const [username, setUsername] = useState("");
@@ -30,6 +44,7 @@ function AuthPage() {
   const [loading, setLoading] = useState(false);
   const [info, setInfo] = useState<string | null>(null);
   const forgotFn = useServerFn(forgotPassword);
+  const loginFn = useServerFn(login);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -41,14 +56,14 @@ function AuthPage() {
     setError(null);
     setInfo(null);
     const u = username.trim().toLowerCase();
-    if (!u) return setError("Informe seu usuário para redefinir a senha.");
-    if (!window.confirm(`Redefinir a senha do usuário "${u}" para a senha padrão?`)) return;
+    if (!u) return setError("Informe seu usuário para pedir a redefinição.");
+    if (!window.confirm(`Pedir a redefinição de senha do usuário "${u}"? Um administrador precisa gerar a nova senha.`)) return;
     setLoading(true);
     try {
       await forgotFn({ data: { username: u } });
-      setInfo("Se o usuário existir, a senha foi redefinida para NMQ@12345. Entre e defina uma nova senha.");
-    } catch {
-      setError("Não foi possível redefinir a senha.");
+      setInfo("Procure um administrador para redefinir sua senha. O acesso volta quando ele gerar uma senha temporária para você.");
+    } catch (e) {
+      setError(messageOf(e, "Não foi possível registrar o pedido."));
     }
     setLoading(false);
   }
@@ -59,21 +74,18 @@ function AuthPage() {
     const u = username.trim().toLowerCase();
     if (!u || !password) return setError("Informe usuário e senha.");
     setLoading(true);
-    const { data, error } = await supabase.auth.signInWithPassword({ email: `${u}@demanda.local`, password });
-    if (error || !data.user) {
-      setLoading(false);
-      const msg = error?.message ?? "";
-      setError(msg.toLowerCase().includes("banned") ? "Conta desativada. Fale com o administrador." : "Usuário ou senha inválidos.");
-      return;
+    try {
+      const tokens = await loginFn({ data: { username: u, password } });
+      const { error: sessionError } = await supabase.auth.setSession({
+        access_token: tokens.access_token,
+        refresh_token: tokens.refresh_token,
+      });
+      if (sessionError) throw new Error("Usuário ou senha inválidos.");
+      navigate({ to: "/inicio", replace: true });
+    } catch (e) {
+      setError(messageOf(e, "Usuário ou senha inválidos."));
     }
-    const { data: profile } = await supabase.from("profiles").select("is_active").eq("id", data.user.id).maybeSingle();
-    if (profile && !profile.is_active) {
-      await supabase.auth.signOut();
-      setLoading(false);
-      setError("Conta desativada. Fale com o administrador.");
-      return;
-    }
-    navigate({ to: "/inicio", replace: true });
+    setLoading(false);
   }
 
   return (

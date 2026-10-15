@@ -1,7 +1,7 @@
 # Roadmap — Demanda de Peças (JCB NORMAQ)
 
 ## Feito
-- Banco: profiles, user_roles, stock_items, stock_imports, demand_requests, audit_logs, RLS, demand_ranking, admin lucas.cruz/12345
+- Banco: profiles, user_roles, stock_items, stock_imports, demand_requests, audit_logs, RLS, demand_ranking, admin inicial (senha fora do repositório)
 - Auth por usuário (e-mail sintético), cadastro público desligado
 - Telas-base: login, início, solicitar, relatório, importar, usuários, auditoria
 
@@ -26,6 +26,6 @@
 ## Ajuste (24/09/2026)
 - [x] Redirecionar para troca de senha quando marcada; menu filtrado por painel
 - [x] Pesquisa de peça por descrição no Registrar Solicitação
-- [x] "Esqueci minha senha" no login (NMQ@12345 + troca obrigatória)
+- [x] "Esqueci minha senha" no login (senha temporária + troca obrigatória)
 ## Nova funcionalidade (25/09/2026) — e-mail cancelado
 - [x] Cancelado: envio por e-mail substituído por exportar PDF e Excel no Relatório

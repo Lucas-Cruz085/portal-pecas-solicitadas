@@ -1,11 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { requirePanel } from "@/lib/route-guard";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useMemo, useState } from "react";
 import { KeyRound, Pencil, Search, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { AdminOnly, PageHeader } from "@/components/AppShell";
-import { createUser, listUsers, updateUser, resetUserPassword, DEFAULT_RESET_PASSWORD } from "@/lib/auth.functions";
+import { createUser, listUsers, updateUser, resetUserPassword } from "@/lib/auth.functions";
 import { listPermissions, setUserPermissions, PANELS, PANEL_LABELS, type Panel } from "@/lib/permissions.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +18,7 @@ import { formatDateTime } from "@/lib/datetime";
 import { useMe } from "@/hooks/use-me";
 
 export const Route = createFileRoute("/_authenticated/usuarios")({
+  beforeLoad: () => requirePanel("usuarios"),
   head: () => ({ meta: [{ title: "Gestão de Usuários — Demanda de Peças" }] }),
   component: () => (
     <AdminOnly>
@@ -69,6 +71,7 @@ function Usuarios() {
   const [open, setOpen] = useState(false);
   const [edit, setEdit] = useState<UserRow | null>(null);
   const [confirmReset, setConfirmReset] = useState<UserRow | null>(null);
+  const [tempPassword, setTempPassword] = useState<string | null>(null);
   const [nf, setNf] = useState({ username: "", password: "", full_name: "", email: "", role: "consultor" as Role, panels: [] as Panel[] });
   const [ef, setEf] = useState({ full_name: "", email: "", role: "consultor" as Role });
   const [ep, setEp] = useState<Panel[]>([]);
@@ -112,7 +115,7 @@ function Usuarios() {
   });
   const mReset = useMutation({
     mutationFn: (u: UserRow) => resetPw({ data: { id: u.id } }),
-    onSuccess: () => { toast.success(`Senha redefinida para ${DEFAULT_RESET_PASSWORD}. O usuário deverá trocá-la no próximo acesso.`); setConfirmReset(null); invalidate(); },
+    onSuccess: (res) => { setTempPassword(res.password); toast.success("Senha temporária gerada. O usuário deverá trocá-la no próximo acesso."); invalidate(); },
     onError: (e: Error) => toast.error(e.message),
   });
   const mToggle = useMutation({
@@ -183,7 +186,7 @@ function Usuarios() {
           <DialogHeader><DialogTitle>Novo usuário</DialogTitle></DialogHeader>
           <form className="space-y-2" onSubmit={(e) => { e.preventDefault(); mCreate.mutate(); }}>
             <div><Label>Usuário (login) *</Label><Input className="num" value={nf.username} onChange={(e) => setNf({ ...nf, username: e.target.value.toLowerCase() })} placeholder="ex: joao.silva" required /></div>
-            <div><Label>Senha * (mín. 5 caracteres)</Label><Input type="text" value={nf.password} onChange={(e) => setNf({ ...nf, password: e.target.value })} required minLength={5} /></div>
+            <div><Label>Senha * (mín. 12 caracteres)</Label><Input type="password" autoComplete="new-password" value={nf.password} onChange={(e) => setNf({ ...nf, password: e.target.value })} required minLength={12} /></div>
             <div><Label>Nome completo *</Label><Input value={nf.full_name} onChange={(e) => setNf({ ...nf, full_name: e.target.value })} required /></div>
             <div><Label>E-mail (informativo)</Label><Input type="email" value={nf.email} onChange={(e) => setNf({ ...nf, email: e.target.value })} /></div>
             <div><Label>Papel</Label><RoleSelect value={nf.role} onChange={(role) => setNf({ ...nf, role })} /></div>
@@ -229,7 +232,7 @@ function Usuarios() {
           <div className="space-y-2 border-t pt-3">
             <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Senha</div>
             <p className="text-[12px] text-muted-foreground">
-              Redefine a senha para <span className="num font-medium text-foreground">{DEFAULT_RESET_PASSWORD}</span> e obriga o usuário a criar uma nova senha no próximo acesso.
+              Gera uma senha temporária única e obriga o usuário a criar uma nova senha no próximo acesso. Ela aparece uma única vez para você copiar.
             </p>
             <Button type="button" variant="destructive" onClick={() => edit && setConfirmReset(edit)}>
               <KeyRound className="mr-1 h-3.5 w-3.5" /> Resetar senha
@@ -238,18 +241,26 @@ function Usuarios() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!confirmReset} onOpenChange={(o) => !o && setConfirmReset(null)}>
+      <Dialog open={!!confirmReset} onOpenChange={(o) => { if (!o) { setConfirmReset(null); setTempPassword(null); } }}>
         <DialogContent className="max-w-sm">
           <DialogHeader><DialogTitle>Resetar senha · <span className="num">{confirmReset?.username}</span></DialogTitle></DialogHeader>
-          <p className="text-[12.5px] text-muted-foreground">
-            A senha passará a ser <span className="num font-medium text-foreground">{DEFAULT_RESET_PASSWORD}</span> e o usuário precisará definir uma nova senha ao entrar. Deseja continuar?
-          </p>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setConfirmReset(null)}>Cancelar</Button>
-            <Button variant="destructive" disabled={mReset.isPending} onClick={() => confirmReset && mReset.mutate(confirmReset)}>
-              {mReset.isPending ? "Resetando…" : "Confirmar reset"}
-            </Button>
-          </div>
+          {tempPassword ? (
+            <div className="space-y-3">
+              <p className="text-[12.5px] text-muted-foreground">Copie a senha temporária agora. Ela não será mostrada de novo. O usuário precisa trocá-la ao entrar.</p>
+              <p className="num rounded bg-muted px-2 py-1 text-center text-[13px] font-medium">{tempPassword}</p>
+              <Button className="w-full" onClick={() => { setConfirmReset(null); setTempPassword(null); }}>Fechar</Button>
+            </div>
+          ) : (
+            <>
+              <p className="text-[12.5px] text-muted-foreground">Uma senha temporária única será gerada e o usuário precisará definir uma nova senha ao entrar. Deseja continuar?</p>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setConfirmReset(null)}>Cancelar</Button>
+                <Button variant="destructive" disabled={mReset.isPending} onClick={() => confirmReset && mReset.mutate(confirmReset)}>
+                  {mReset.isPending ? "Resetando…" : "Confirmar reset"}
+                </Button>
+              </div>
+            </>
+          )}
         </DialogContent>
       </Dialog>
     </div>

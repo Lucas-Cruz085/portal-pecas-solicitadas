@@ -16,7 +16,7 @@ Crie um portal web chamado "Demanda de Peças" para uma concessionária, com aut
 
   - Usuário: lucas.cruz
 
-  - Senha: 12345
+  - Senha: provisionada no banco, fora deste repositório
 
   - Papel: Administrador
 

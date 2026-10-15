@@ -52,6 +52,7 @@ export type Database = {
       }
       demand_requests: {
         Row: {
+          branch: string | null
           created_at: string
           customer_contact: string | null
           customer_name: string | null
@@ -64,6 +65,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          branch?: string | null
           created_at?: string
           customer_contact?: string | null
           customer_name?: string | null
@@ -76,6 +78,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          branch?: string | null
           created_at?: string
           customer_contact?: string | null
           customer_name?: string | null
@@ -143,6 +146,54 @@ export type Database = {
           imported_at?: string
           imported_by?: string
           item_count?: number
+        }
+        Relationships: []
+      }
+      stock_import_staging: {
+        Row: {
+          batch_id: string
+          created_at: string
+          description: string
+          quantity: number
+          reference: string
+        }
+        Insert: {
+          batch_id: string
+          created_at?: string
+          description?: string
+          quantity?: number
+          reference: string
+        }
+        Update: {
+          batch_id?: string
+          created_at?: string
+          description?: string
+          quantity?: number
+          reference?: string
+        }
+        Relationships: []
+      }
+      stock_items_normaq: {
+        Row: {
+          branch: string
+          description: string
+          quantity: number
+          reference: string
+          updated_at: string
+        }
+        Insert: {
+          branch: string
+          description?: string
+          quantity?: number
+          reference: string
+          updated_at?: string
+        }
+        Update: {
+          branch?: string
+          description?: string
+          quantity?: number
+          reference?: string
+          updated_at?: string
         }
         Relationships: []
       }
@@ -217,10 +268,25 @@ export type Database = {
       demand_ranking: {
         Args: { _from?: string; _search?: string; _to?: string; _user?: string }
         Returns: {
+          branch: string
           current_stock: number
           description: string
           last_requested: string
           reference: string
+          requesters: string
+          total_quantity: number
+          total_requests: number
+        }[]
+      }
+      demand_ranking_by_branch: {
+        Args: { _from?: string; _search?: string; _to?: string; _user?: string }
+        Returns: {
+          branch: string
+          current_stock: number
+          description: string
+          last_requested: string
+          reference: string
+          requesters: string
           total_quantity: number
           total_requests: number
         }[]
@@ -240,6 +306,21 @@ export type Database = {
         Returns: boolean
       }
       is_active_user: { Args: { _user_id: string }; Returns: boolean }
+      latest_stock_import: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          imported_at: string
+          item_count: number
+        }[]
+      }
+      commit_stock_import: {
+        Args: { _batch: string; _by: string; _file: string }
+        Returns: {
+          id: string
+          imported_at: string
+          item_count: number
+        }[]
+      }
     }
     Enums: {
       app_panel:

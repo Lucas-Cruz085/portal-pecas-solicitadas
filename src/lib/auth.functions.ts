@@ -3,36 +3,105 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { PANELS, type Panel } from "./permissions.functions";
 
-export const DEFAULT_RESET_PASSWORD = "NMQ@123";
-export const FORGOT_RESET_PASSWORD = "NMQ@12345";
+const usernameSchema = z
+  .string()
+  .trim()
+  .min(3, "Mínimo 3 caracteres")
+  .max(40)
+  .regex(/^[a-z0-9._-]+$/i, "Use apenas letras, números, ponto, hífen ou sublinhado");
 
-export const forgotPassword = createServerFn({ method: "POST" })
+const newPasswordSchema = z
+  .string()
+  .min(12, "A senha precisa ter ao menos 12 caracteres")
+  .max(72);
+
+export const login = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) =>
-    z.object({ username: z.string().trim().min(3).max(40).regex(/^[a-z0-9._-]+$/i) }).parse(d),
+    z.object({ username: usernameSchema, password: z.string().min(1).max(72) }).parse(d),
   )
   .handler(async ({ data }) => {
+    const { assertRateLimit, clientAddress } = await import("./rate-limit.server");
+    const { createEphemeralAuth } = await import("./password.server");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { usernameToEmail, writeAudit } = await import("./audit.server");
     const username = data.username.toLowerCase();
+    const ip = clientAddress();
+    assertRateLimit(`login:user:${username}`, 20, 15 * 60 * 1000);
+    assertRateLimit(`login:ip:${ip}`, 40, 15 * 60 * 1000);
+
+    const auth = createEphemeralAuth();
+    const { data: signed, error } = await auth.auth.signInWithPassword({
+      email: usernameToEmail(username),
+      password: data.password,
+    });
+    if (error || !signed.session || !signed.user) {
+      const banned = (error?.message ?? "").toLowerCase().includes("banned");
+      const { data: prof } = await supabaseAdmin
+        .from("profiles")
+        .select("id, username")
+        .eq("username", username)
+        .maybeSingle();
+      await writeAudit(supabaseAdmin, {
+        userId: prof?.id ?? null,
+        username: prof?.username ?? username,
+        action: "login_falho",
+        entity: "sessao",
+        after: { motivo: banned ? "conta_desativada" : "credencial_invalida" },
+      });
+      throw new Error(banned ? "Conta desativada. Fale com o administrador." : "Usuário ou senha inválidos.");
+    }
+
+    const { data: profile } = await supabaseAdmin
+      .from("profiles")
+      .select("id, username, is_active")
+      .eq("id", signed.user.id)
+      .maybeSingle();
+    if (!profile?.is_active) {
+      await writeAudit(supabaseAdmin, {
+        userId: signed.user.id,
+        username: profile?.username ?? username,
+        action: "login_falho",
+        entity: "sessao",
+        after: { motivo: "conta_desativada" },
+      });
+      throw new Error("Conta desativada. Fale com o administrador.");
+    }
+
+    await writeAudit(supabaseAdmin, {
+      userId: signed.user.id,
+      username: profile.username,
+      action: "login",
+      entity: "sessao",
+    });
+    return {
+      access_token: signed.session.access_token,
+      refresh_token: signed.session.refresh_token,
+    };
+  });
+
+export const forgotPassword = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => z.object({ username: usernameSchema }).parse(d))
+  .handler(async ({ data }) => {
+    const { assertRateLimit, clientAddress } = await import("./rate-limit.server");
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { writeAudit } = await import("./audit.server");
+    const username = data.username.toLowerCase();
+    const ip = clientAddress();
+    assertRateLimit(`forgot:user:${username}`, 3, 60 * 60 * 1000);
+    assertRateLimit(`forgot:ip:${ip}`, 5, 60 * 60 * 1000);
+
     const { data: prof } = await supabaseAdmin
       .from("profiles")
       .select("id, username, is_active")
       .eq("username", username)
       .maybeSingle();
-    // Always respond ok to avoid revealing which usernames exist
-    if (!prof || !prof.is_active) return { ok: true };
-    const { error } = await supabaseAdmin.auth.admin.updateUserById(prof.id, { password: FORGOT_RESET_PASSWORD });
-    if (error) return { ok: true };
-    await supabaseAdmin
-      .from("profiles")
-      .update({ needs_password_change: true, updated_at: new Date().toISOString() })
-      .eq("id", prof.id);
-    await supabaseAdmin.from("audit_logs").insert({
-      user_id: prof.id,
-      username: prof.username,
-      action: "esqueci_senha",
+    await writeAudit(supabaseAdmin, {
+      userId: prof?.id ?? null,
+      username: prof?.username ?? username,
+      action: "tentativa_esqueci_senha",
       entity: "usuario",
-      entity_id: prof.id,
-      after_data: { needs_password_change: true },
+      entityId: prof?.id ?? null,
+      after: { encaminhado_ao_admin: true },
     });
     return { ok: true };
   });
@@ -41,7 +110,7 @@ export const getMe = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const { loadCaller } = await import("./audit.server");
-    const { profile, isAdmin } = await loadCaller(context.supabase, context.userId);
+    const { profile, isAdmin } = await loadCaller(context.supabase, context.userId, { allowPendingPassword: true });
     const { data: perms } = await context.supabase
       .from("user_permissions")
       .select("panel, allowed")
@@ -57,7 +126,7 @@ export const recordSessionEvent = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => z.object({ event: z.enum(["login", "logout"]) }).parse(d))
   .handler(async ({ data, context }) => {
     const { loadCaller, writeAudit } = await import("./audit.server");
-    const { profile } = await loadCaller(context.supabase, context.userId);
+    const { profile } = await loadCaller(context.supabase, context.userId, { allowPendingPassword: true });
     await writeAudit(context.supabase, {
       userId: context.userId,
       username: profile.username,
@@ -81,16 +150,9 @@ export const listUsers = createServerFn({ method: "GET" })
     return (profiles ?? []).map((p) => ({ ...p, role: roleMap.get(p.id) ?? "consultor" }));
   });
 
-const usernameSchema = z
-  .string()
-  .trim()
-  .min(3, "Mínimo 3 caracteres")
-  .max(40)
-  .regex(/^[a-z0-9._-]+$/i, "Use apenas letras, números, ponto, hífen ou sublinhado");
-
 const createUserSchema = z.object({
   username: usernameSchema,
-  password: z.string().min(5, "A senha precisa ter ao menos 5 caracteres").max(72),
+  password: newPasswordSchema,
   full_name: z.string().trim().min(2).max(120),
   email: z.string().trim().email().max(255).optional().or(z.literal("")),
   role: z.enum(["admin", "consultor"]),
@@ -105,6 +167,8 @@ export const createUser = createServerFn({ method: "POST" })
     const { profile, isAdmin } = await loadCaller(context.supabase, context.userId);
     if (!isAdmin) throw new Error("Acesso negado");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { isRetiredPassword } = await import("./password.server");
+    if (isRetiredPassword(data.password)) throw new Error("Escolha uma senha diferente da senha padrão antiga");
 
     const username = data.username.toLowerCase();
     const { data: created, error } = await supabaseAdmin.auth.admin.createUser({
@@ -113,9 +177,19 @@ export const createUser = createServerFn({ method: "POST" })
       email_confirm: true,
       user_metadata: { username, full_name: data.full_name },
     });
-    if (error || !created.user) throw new Error(error?.message ?? "Falha ao criar usuário");
+    if (error || !created.user) {
+      const duplicate = (error?.message ?? "").toLowerCase().includes("already");
+      throw new Error(duplicate ? "Nome de usuário já existe" : "Falha ao criar usuário");
+    }
 
     const uid = created.user.id;
+    const rollback = async () => {
+      await supabaseAdmin.from("user_permissions").delete().eq("user_id", uid);
+      await supabaseAdmin.from("user_roles").delete().eq("user_id", uid);
+      await supabaseAdmin.from("profiles").delete().eq("id", uid);
+      await supabaseAdmin.auth.admin.deleteUser(uid);
+    };
+
     const { error: pErr } = await supabaseAdmin.from("profiles").insert({
       id: uid,
       username,
@@ -124,10 +198,14 @@ export const createUser = createServerFn({ method: "POST" })
     });
     if (pErr) {
       await supabaseAdmin.auth.admin.deleteUser(uid);
-      throw new Error(pErr.code === "23505" ? "Nome de usuário já existe" : pErr.message);
+      throw new Error(pErr.code === "23505" ? "Nome de usuário já existe" : "Falha ao criar usuário");
     }
-    await supabaseAdmin.from("user_roles").insert({ user_id: uid, role: data.role });
-    await supabaseAdmin.from("user_permissions").upsert(
+    const { error: roleErr } = await supabaseAdmin.from("user_roles").insert({ user_id: uid, role: data.role });
+    if (roleErr) {
+      await rollback();
+      throw new Error("Falha ao criar usuário");
+    }
+    const { error: permErr } = await supabaseAdmin.from("user_permissions").upsert(
       PANELS.map((panel) => ({
         user_id: uid,
         panel,
@@ -135,15 +213,35 @@ export const createUser = createServerFn({ method: "POST" })
       })),
       { onConflict: "user_id,panel" },
     );
+    if (permErr) {
+      await rollback();
+      throw new Error("Falha ao criar usuário");
+    }
 
-    await writeAudit(context.supabase, {
-      userId: context.userId,
-      username: profile.username,
-      action: "criar_usuario",
-      entity: "usuario",
-      entityId: uid,
-      after: { username, full_name: data.full_name, email: data.email || null, role: data.role, is_active: true, paineis: data.role === "admin" ? [...PANELS] : data.panels },
-    });
+    try {
+      await writeAudit(
+        context.supabase,
+        {
+          userId: context.userId,
+          username: profile.username,
+          action: "criar_usuario",
+          entity: "usuario",
+          entityId: uid,
+          after: {
+            username,
+            full_name: data.full_name,
+            email: data.email || null,
+            role: data.role,
+            is_active: true,
+            paineis: data.role === "admin" ? [...PANELS] : data.panels,
+          },
+        },
+        true,
+      );
+    } catch (auditError) {
+      await rollback();
+      throw auditError;
+    }
     return { id: uid };
   });
 
@@ -153,8 +251,27 @@ const updateUserSchema = z.object({
   email: z.string().trim().email().max(255).optional().or(z.literal("")),
   role: z.enum(["admin", "consultor"]).optional(),
   is_active: z.boolean().optional(),
-  password: z.string().min(5).max(72).optional().or(z.literal("")),
+  password: newPasswordSchema.optional().or(z.literal("")),
 });
+
+async function assertKeepsAnAdmin(
+  supabaseAdmin: Awaited<typeof import("@/integrations/supabase/client.server")>["supabaseAdmin"],
+  targetId: string,
+  removingTargetAdmin: boolean,
+) {
+  if (!removingTargetAdmin) return;
+  const { data: roles, error } = await supabaseAdmin.from("user_roles").select("user_id").eq("role", "admin");
+  if (error) throw new Error("Falha ao atualizar o usuário");
+  const ids = (roles ?? []).map((r) => r.user_id).filter((id) => id !== targetId);
+  if (!ids.length) throw new Error("O portal precisa manter ao menos um administrador ativo.");
+  const { data: active, error: pErr } = await supabaseAdmin
+    .from("profiles")
+    .select("id")
+    .in("id", ids)
+    .eq("is_active", true);
+  if (pErr) throw new Error("Falha ao atualizar o usuário");
+  if (!active?.length) throw new Error("O portal precisa manter ao menos um administrador ativo.");
+}
 
 export const updateUser = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -164,6 +281,7 @@ export const updateUser = createServerFn({ method: "POST" })
     const { profile, isAdmin } = await loadCaller(context.supabase, context.userId);
     if (!isAdmin) throw new Error("Acesso negado");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { isRetiredPassword, revokeUserSessions } = await import("./password.server");
 
     const { data: before } = await supabaseAdmin.from("profiles").select("*").eq("id", data.id).single();
     const { data: beforeRole } = await supabaseAdmin
@@ -173,6 +291,12 @@ export const updateUser = createServerFn({ method: "POST" })
       .maybeSingle();
     if (!before) throw new Error("Usuário não encontrado");
     if (data.id === context.userId && data.is_active === false) throw new Error("Você não pode desativar a si mesmo");
+    if (data.password && isRetiredPassword(data.password)) throw new Error("Escolha uma senha diferente da senha padrão antiga");
+
+    const nextRole = data.role ?? beforeRole?.role;
+    const nextActive = data.is_active ?? before.is_active;
+    const removingAdmin = beforeRole?.role === "admin" && (nextRole !== "admin" || nextActive === false);
+    await assertKeepsAnAdmin(supabaseAdmin, data.id, removingAdmin);
 
     const patch: { updated_at: string; full_name?: string; email?: string | null; is_active?: boolean } = {
       updated_at: new Date().toISOString(),
@@ -181,11 +305,13 @@ export const updateUser = createServerFn({ method: "POST" })
     if (data.email !== undefined) patch.email = data.email || null;
     if (data.is_active !== undefined) patch.is_active = data.is_active;
     const { error } = await supabaseAdmin.from("profiles").update(patch).eq("id", data.id);
-    if (error) throw new Error(error.message);
+    if (error) throw new Error("Falha ao atualizar o usuário");
 
     if (data.role && data.role !== beforeRole?.role) {
-      await supabaseAdmin.from("user_roles").delete().eq("user_id", data.id);
-      await supabaseAdmin.from("user_roles").insert({ user_id: data.id, role: data.role });
+      const { error: delErr } = await supabaseAdmin.from("user_roles").delete().eq("user_id", data.id);
+      if (delErr) throw new Error("Falha ao atualizar o usuário");
+      const { error: insErr } = await supabaseAdmin.from("user_roles").insert({ user_id: data.id, role: data.role });
+      if (insErr) throw new Error("Falha ao atualizar o usuário");
     }
 
     const authPatch: { password?: string; ban_duration?: string } = {};
@@ -193,24 +319,29 @@ export const updateUser = createServerFn({ method: "POST" })
     if (data.is_active !== undefined) authPatch.ban_duration = data.is_active ? "none" : "876000h";
     if (Object.keys(authPatch).length) {
       const { error: aErr } = await supabaseAdmin.auth.admin.updateUserById(data.id, authPatch);
-      if (aErr) throw new Error(aErr.message);
+      if (aErr) throw new Error("Falha ao atualizar o usuário");
+      if (data.password || data.is_active === false) await revokeUserSessions(data.id);
     }
 
-    await writeAudit(context.supabase, {
-      userId: context.userId,
-      username: profile.username,
-      action: data.password ? "redefinir_senha" : "editar_usuario",
-      entity: "usuario",
-      entityId: data.id,
-      before: { full_name: before.full_name, email: before.email, is_active: before.is_active, role: beforeRole?.role },
-      after: {
-        full_name: data.full_name ?? before.full_name,
-        email: data.email !== undefined ? data.email || null : before.email,
-        is_active: data.is_active ?? before.is_active,
-        role: data.role ?? beforeRole?.role,
-        password_changed: Boolean(data.password),
+    await writeAudit(
+      context.supabase,
+      {
+        userId: context.userId,
+        username: profile.username,
+        action: data.password ? "redefinir_senha" : "editar_usuario",
+        entity: "usuario",
+        entityId: data.id,
+        before: { full_name: before.full_name, email: before.email, is_active: before.is_active, role: beforeRole?.role },
+        after: {
+          full_name: data.full_name ?? before.full_name,
+          email: data.email !== undefined ? data.email || null : before.email,
+          is_active: data.is_active ?? before.is_active,
+          role: data.role ?? beforeRole?.role,
+          password_changed: Boolean(data.password),
+        },
       },
-    });
+      true,
+    );
     return { ok: true };
   });
 
@@ -222,16 +353,19 @@ export const resetUserPassword = createServerFn({ method: "POST" })
     const { profile, isAdmin } = await loadCaller(context.supabase, context.userId);
     if (!isAdmin) throw new Error("Acesso negado");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { generateTemporaryPassword, revokeUserSessions } = await import("./password.server");
+    const { data: target } = await supabaseAdmin.from("profiles").select("id").eq("id", data.id).maybeSingle();
+    if (!target) throw new Error("Usuário não encontrado");
 
-    const { error } = await supabaseAdmin.auth.admin.updateUserById(data.id, {
-      password: DEFAULT_RESET_PASSWORD,
-    });
-    if (error) throw new Error(error.message);
+    const password = generateTemporaryPassword();
+    const { error } = await supabaseAdmin.auth.admin.updateUserById(data.id, { password });
+    if (error) throw new Error("Falha ao redefinir a senha");
     const { error: pErr } = await supabaseAdmin
       .from("profiles")
       .update({ needs_password_change: true, updated_at: new Date().toISOString() })
       .eq("id", data.id);
-    if (pErr) throw new Error(pErr.message);
+    if (pErr) throw new Error("Falha ao redefinir a senha");
+    await revokeUserSessions(data.id);
 
     await writeAudit(context.supabase, {
       userId: context.userId,
@@ -241,7 +375,7 @@ export const resetUserPassword = createServerFn({ method: "POST" })
       entityId: data.id,
       after: { needs_password_change: true },
     });
-    return { ok: true, password: DEFAULT_RESET_PASSWORD };
+    return { ok: true, password };
   });
 
 export const changeOwnPassword = createServerFn({ method: "POST" })
@@ -249,25 +383,43 @@ export const changeOwnPassword = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) =>
     z
       .object({
-        password: z.string().min(5, "A senha precisa ter ao menos 5 caracteres").max(72),
+        password: newPasswordSchema,
         confirm: z.string(),
+        current: z.string().max(72).optional().or(z.literal("")),
       })
       .refine((v) => v.password === v.confirm, { message: "As senhas não conferem", path: ["confirm"] })
       .parse(d),
   )
   .handler(async ({ data, context }) => {
-    const { loadCaller, writeAudit } = await import("./audit.server");
-    const { profile } = await loadCaller(context.supabase, context.userId);
-    if (data.password === DEFAULT_RESET_PASSWORD || data.password === FORGOT_RESET_PASSWORD)
-      throw new Error("Escolha uma senha diferente da senha padrão");
+    const { assertRateLimit } = await import("./rate-limit.server");
+    assertRateLimit(`changepw:${context.userId}`, 10, 60 * 60 * 1000);
+    const { loadCaller, writeAudit, usernameToEmail } = await import("./audit.server");
+    const { profile } = await loadCaller(context.supabase, context.userId, { allowPendingPassword: true });
+    const { isRetiredPassword, createEphemeralAuth, revokeUserSessions } = await import("./password.server");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    if (isRetiredPassword(data.password)) throw new Error("Escolha uma senha diferente da senha padrão antiga");
+
+    const auth = createEphemeralAuth();
+    const email = usernameToEmail(profile.username);
+    if (!profile.needs_password_change) {
+      if (!data.current) throw new Error("Informe a senha atual.");
+      const current = await auth.auth.signInWithPassword({ email, password: data.current });
+      if (current.error || !current.data.session) throw new Error("Senha atual inválida.");
+    }
+    const same = await auth.auth.signInWithPassword({ email, password: data.password });
+    if (!same.error && same.data.session) throw new Error("Escolha uma senha diferente da senha atual.");
 
     const { error } = await supabaseAdmin.auth.admin.updateUserById(context.userId, { password: data.password });
-    if (error) throw new Error(error.message);
-    await supabaseAdmin
+    if (error) throw new Error("Falha ao alterar a senha");
+    const { error: flagErr } = await supabaseAdmin
       .from("profiles")
       .update({ needs_password_change: false, updated_at: new Date().toISOString() })
       .eq("id", context.userId);
+    if (flagErr) throw new Error("Falha ao alterar a senha");
+    await revokeUserSessions(context.userId);
+
+    const fresh = await auth.auth.signInWithPassword({ email, password: data.password });
+    if (fresh.error || !fresh.data.session) throw new Error("Senha alterada. Entre novamente com a nova senha.");
 
     await writeAudit(context.supabase, {
       userId: context.userId,
@@ -277,5 +429,9 @@ export const changeOwnPassword = createServerFn({ method: "POST" })
       entityId: context.userId,
       after: { needs_password_change: false },
     });
-    return { ok: true };
+    return {
+      ok: true as const,
+      access_token: fresh.data.session.access_token,
+      refresh_token: fresh.data.session.refresh_token,
+    };
   });

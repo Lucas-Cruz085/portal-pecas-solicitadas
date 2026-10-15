@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
@@ -12,6 +12,15 @@ import type { StockRow } from "@/lib/pdf-parser";
 import { formatDateTime } from "@/lib/datetime";
 
 export const Route = createFileRoute("/_authenticated/importar")({
+  beforeLoad: async () => {
+    const { data, error } = await supabase.auth.getUser();
+    if (error || !data.user) throw redirect({ to: "/auth" });
+    const { data: isAdmin } = await supabase.rpc("has_role", {
+      _user_id: data.user.id,
+      _role: "admin",
+    });
+    if (!isAdmin) throw redirect({ to: "/inicio" });
+  },
   head: () => ({ meta: [{ title: "Importar Estoque — Demanda de Peças" }] }),
   component: () => (
     <AdminOnly>

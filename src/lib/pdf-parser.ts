@@ -21,7 +21,8 @@ function parseNumber(s: string) {
 
 export async function parseStockPdf(file: File, onProgress?: (page: number, total: number) => void) {
   const buf = await file.arrayBuffer();
-  const doc = await pdfjs.getDocument({ data: buf }).promise;
+  const source = { data: buf, isEvalSupported: false };
+  const doc = await pdfjs.getDocument(source as Parameters<typeof pdfjs.getDocument>[0]).promise;
   const rows: StockRow[] = [];
   let refX = 0;
   let descX = 0;

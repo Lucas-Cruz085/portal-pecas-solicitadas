@@ -33,10 +33,11 @@ export const setUserPermissions = createServerFn({ method: "POST" })
       .eq("user_id", data.userId);
     const beforeSet = (before ?? []).filter((p) => p.allowed).map((p) => p.panel);
 
-    await supabaseAdmin.from("user_permissions").upsert(
+    const { error: permErr } = await supabaseAdmin.from("user_permissions").upsert(
       PANELS.map((panel) => ({ user_id: data.userId, panel, allowed: data.panels.includes(panel), updated_at: new Date().toISOString() })),
       { onConflict: "user_id,panel" },
     );
+    if (permErr) throw new Error("Falha ao salvar as permissões");
 
     await writeAudit(context.supabase, {
       userId: context.userId,
@@ -46,7 +47,7 @@ export const setUserPermissions = createServerFn({ method: "POST" })
       entityId: data.userId,
       before: { paineis: beforeSet },
       after: { paineis: data.panels },
-    });
+    }, true);
     return { ok: true };
   });
 

@@ -22,38 +22,45 @@ export const importStock = createServerFn({ method: "POST" })
     if (!isAdmin) throw new Error("Acesso negado");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
-    // Deduplicate by reference (last occurrence wins)
     const map = new Map<string, { reference: string; description: string; quantity: number }>();
     for (const r of data.rows) map.set(r.reference.toUpperCase(), { ...r, reference: r.reference.toUpperCase() });
     const rows = [...map.values()];
-    const now = new Date().toISOString();
+    const batchId = crypto.randomUUID();
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    await supabaseAdmin.from("stock_import_staging").delete().lt("created_at", cutoff);
 
     const { count: beforeCount } = await supabaseAdmin
       .from("stock_items")
       .select("reference", { count: "exact", head: true });
 
-    for (let i = 0; i < rows.length; i += 500) {
-      const chunk = rows.slice(i, i + 500).map((r) => ({ ...r, updated_at: now }));
-      const { error } = await supabaseAdmin.from("stock_items").upsert(chunk, { onConflict: "reference" });
-      if (error) throw new Error(error.message);
+    try {
+      for (let i = 0; i < rows.length; i += 500) {
+        const chunk = rows.slice(i, i + 500).map((r) => ({ ...r, batch_id: batchId }));
+        const { error } = await supabaseAdmin.from("stock_import_staging").upsert(chunk, { onConflict: "batch_id,reference" });
+        if (error) throw new Error("Falha ao importar o estoque");
+      }
+
+      const { data: committed, error: cErr } = await supabaseAdmin.rpc("commit_stock_import", {
+        _batch: batchId,
+        _file: data.fileName,
+        _by: context.userId,
+      });
+      const imp = committed?.[0];
+      if (cErr || !imp) throw new Error("Falha ao importar o estoque");
+      const zero = rows.filter((r) => r.quantity === 0).length;
+      await writeAudit(context.supabase, {
+        userId: context.userId,
+        username: profile.username,
+        action: "importar_estoque",
+        entity: "estoque",
+        entityId: imp.id,
+        before: { total_itens: beforeCount ?? 0 },
+        after: { arquivo: data.fileName, itens_importados: rows.length, itens_zerados: zero },
+      });
+      return { imported: rows.length, zero, importedAt: imp.imported_at };
+    } catch (error) {
+      await supabaseAdmin.from("stock_import_staging").delete().eq("batch_id", batchId);
+      if (error instanceof Error && error.message === "Falha ao importar o estoque") throw error;
+      throw new Error("Falha ao importar o estoque");
     }
-
-    const { data: imp, error: iErr } = await supabaseAdmin
-      .from("stock_imports")
-      .insert({ imported_by: context.userId, file_name: data.fileName, item_count: rows.length })
-      .select()
-      .single();
-    if (iErr) throw new Error(iErr.message);
-
-    const zero = rows.filter((r) => r.quantity === 0).length;
-    await writeAudit(context.supabase, {
-      userId: context.userId,
-      username: profile.username,
-      action: "importar_estoque",
-      entity: "estoque",
-      entityId: imp.id,
-      before: { total_itens: beforeCount ?? 0 },
-      after: { arquivo: data.fileName, itens_importados: rows.length, itens_zerados: zero },
-    });
-    return { imported: rows.length, zero, importedAt: imp.imported_at };
   });

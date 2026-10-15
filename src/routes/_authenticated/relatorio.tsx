@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { requirePanel } from "@/lib/route-guard";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useMemo, useState } from "react";
@@ -17,6 +18,7 @@ import { deleteDemandRequest, updateDemandRequest } from "@/lib/demand.functions
 import type { Tables } from "@/integrations/supabase/types";
 
 export const Route = createFileRoute("/_authenticated/relatorio")({
+  beforeLoad: () => requirePanel("relatorio"),
   head: () => ({ meta: [{ title: "Relatório de Demanda — Demanda de Peças" }] }),
   component: Relatorio,
 });
@@ -38,9 +40,13 @@ function Relatorio() {
 
   const profiles = useQuery({
     queryKey: ["profiles"],
-    queryFn: async () => (await supabase.from("profiles").select("id, username, full_name")).data ?? [],
+    queryFn: async () =>
+      (await supabase.from("profiles").select("id, username, full_name")).data ?? [],
   });
-  const nameOf = useMemo(() => new Map((profiles.data ?? []).map((p) => [p.id, p.full_name])), [profiles.data]);
+  const nameOf = useMemo(
+    () => new Map((profiles.data ?? []).map((p) => [p.id, p.full_name])),
+    [profiles.data],
+  );
 
   const range = { from: from ? startOfDayBR(from) : null, to: to ? endOfDayBR(to) : null };
   const userFilter = me?.isAdmin ? vendor || null : (me?.id ?? null);
@@ -49,7 +55,11 @@ function Relatorio() {
     queryKey: ["requests", "report", range, userFilter],
     enabled: Boolean(me),
     queryFn: async () => {
-      let q = supabase.from("demand_requests").select("*").order("created_at", { ascending: false }).limit(2000);
+      let q = supabase
+        .from("demand_requests")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(2000);
       if (range.from) q = q.gte("created_at", range.from);
       if (range.to) q = q.lte("created_at", range.to);
       if (userFilter) q = q.eq("user_id", userFilter);
@@ -68,7 +78,7 @@ function Relatorio() {
       if (range.to) args._to = range.to;
       if (userFilter) args._user = userFilter;
       if (search) args._search = search;
-      const { data, error } = await supabase.rpc("demand_ranking", args);
+      const { data, error } = await supabase.rpc("demand_ranking_by_branch", args);
       if (error) throw error;
       return data;
     },
@@ -90,14 +100,29 @@ function Relatorio() {
   const top5 = (ranking.data ?? []).slice(0, 5);
 
   function exportCsv() {
-    const header = ["Data/Hora (Brasília)", "Tipo", "Referência", "Descrição", "Quantidade", "Cliente", "Contato", "Vendedor"];
-    const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const header = [
+      "Data/Hora (Brasília)",
+      "Tipo",
+      "Referência",
+      "Descrição",
+      "Filial",
+      "Quantidade",
+      "Cliente",
+      "Contato",
+      "Vendedor",
+    ];
+    const esc = (v: unknown) => {
+      const raw = String(v ?? "");
+      const safe = /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw;
+      return `"${safe.replace(/"/g, '""')}"`;
+    };
     const lines = filtered.map((r) =>
       [
         formatDateTime(r.created_at),
         r.kind === "manual" ? "Flag manual" : "Solicitação estoque",
         r.reference,
         r.description,
+        r.branch || "Sem filial",
         r.quantity,
         r.customer_name,
         r.customer_contact,
@@ -118,18 +143,46 @@ function Relatorio() {
     return [
       {
         title: "Ranking",
-        header: ["#", "Referência", "Descrição", "Solicitações", "Qtd", "Estoque"],
+        header: [
+          "#",
+          "Referência",
+          "Descrição",
+          "Filial",
+          "Solicitações",
+          "Qtd",
+          "Estoque (filial)",
+        ],
         rows: (ranking.data ?? []).map((r, i) => [
-          i + 1, r.reference, r.description ?? "", Number(r.total_requests), Number(r.total_quantity ?? 0),
+          i + 1,
+          r.reference,
+          r.description ?? "",
+          r.branch || "Sem filial",
+          Number(r.total_requests),
+          Number(r.total_quantity ?? 0),
           r.current_stock === null ? "—" : Number(r.current_stock),
         ]),
       },
       {
         title: "Solicitações",
-        header: ["Data/Hora", "Referência", "Descrição", "Qtd", "Cliente", "Contato", "Vendedor"],
+        header: [
+          "Data/Hora",
+          "Referência",
+          "Descrição",
+          "Filial",
+          "Qtd",
+          "Cliente",
+          "Contato",
+          "Vendedor",
+        ],
         rows: filtered.map((r) => [
-          formatDateTime(r.created_at), r.reference, r.description ?? "", r.quantity ?? "",
-          r.customer_name ?? "", r.customer_contact ?? "", nameOf.get(r.user_id) ?? "",
+          formatDateTime(r.created_at),
+          r.reference,
+          r.description ?? "",
+          r.branch || "Sem filial",
+          r.quantity ?? "",
+          r.customer_name ?? "",
+          r.customer_contact ?? "",
+          nameOf.get(r.user_id) ?? "",
         ]),
       },
     ];
@@ -155,15 +208,40 @@ function Relatorio() {
         subtitle={me?.isAdmin ? "Todas as solicitações" : "Suas solicitações"}
         right={
           <div className="flex gap-1.5">
-            <Button size="sm" variant="secondary" className="h-7" disabled={!filtered.length}
-              onClick={() => exportPdf(`${fileBase}.pdf`, "Relatório de Demanda de Peças — NORMAQ JCB", periodLabel, buildTables()).catch((e) => toast.error(String(e)))}>
+            <Button
+              size="sm"
+              variant="secondary"
+              className="h-7"
+              disabled={!filtered.length}
+              onClick={() =>
+                exportPdf(
+                  `${fileBase}.pdf`,
+                  "Relatório de Demanda de Peças — NORMAQ JCB",
+                  periodLabel,
+                  buildTables(),
+                ).catch((e) => toast.error(String(e)))
+              }
+            >
               <FileText className="mr-1 h-3.5 w-3.5" /> PDF
             </Button>
-            <Button size="sm" variant="secondary" className="h-7" disabled={!filtered.length}
-              onClick={() => exportXlsx(`${fileBase}.xlsx`, buildTables()).catch((e) => toast.error(String(e)))}>
+            <Button
+              size="sm"
+              variant="secondary"
+              className="h-7"
+              disabled={!filtered.length}
+              onClick={() =>
+                exportXlsx(`${fileBase}.xlsx`, buildTables()).catch((e) => toast.error(String(e)))
+              }
+            >
               <FileSpreadsheet className="mr-1 h-3.5 w-3.5" /> Excel
             </Button>
-            <Button size="sm" variant="ghost" className="h-7" onClick={exportCsv} disabled={!filtered.length}>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7"
+              onClick={exportCsv}
+              disabled={!filtered.length}
+            >
               <Download className="mr-1 h-3.5 w-3.5" /> CSV
             </Button>
           </div>
@@ -173,15 +251,29 @@ function Relatorio() {
       <div className="panel flex flex-wrap items-end gap-2 px-3 py-2">
         <div>
           <Label className="text-[10.5px] uppercase tracking-wider text-muted-foreground">De</Label>
-          <Input type="date" className="h-7 w-36 text-[12px]" value={from} onChange={(e) => setFrom(e.target.value)} />
+          <Input
+            type="date"
+            className="h-7 w-36 text-[12px]"
+            value={from}
+            onChange={(e) => setFrom(e.target.value)}
+          />
         </div>
         <div>
-          <Label className="text-[10.5px] uppercase tracking-wider text-muted-foreground">Até</Label>
-          <Input type="date" className="h-7 w-36 text-[12px]" value={to} onChange={(e) => setTo(e.target.value)} />
+          <Label className="text-[10.5px] uppercase tracking-wider text-muted-foreground">
+            Até
+          </Label>
+          <Input
+            type="date"
+            className="h-7 w-36 text-[12px]"
+            value={to}
+            onChange={(e) => setTo(e.target.value)}
+          />
         </div>
         {me?.isAdmin && (
           <div>
-            <Label className="text-[10.5px] uppercase tracking-wider text-muted-foreground">Vendedor</Label>
+            <Label className="text-[10.5px] uppercase tracking-wider text-muted-foreground">
+              Vendedor
+            </Label>
             <select
               className="h-7 rounded-md border border-input bg-background px-2 text-[12px]"
               value={vendor}
@@ -189,16 +281,35 @@ function Relatorio() {
             >
               <option value="">Todos</option>
               {profiles.data?.map((p) => (
-                <option key={p.id} value={p.id}>{p.full_name}</option>
+                <option key={p.id} value={p.id}>
+                  {p.full_name}
+                </option>
               ))}
             </select>
           </div>
         )}
         <div className="flex-1 min-w-52">
-          <Label className="text-[10.5px] uppercase tracking-wider text-muted-foreground">Buscar (referência, descrição, cliente)</Label>
-          <Input className="h-7 text-[12px]" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="digite para filtrar" />
+          <Label className="text-[10.5px] uppercase tracking-wider text-muted-foreground">
+            Buscar (referência, descrição, cliente)
+          </Label>
+          <Input
+            className="h-7 text-[12px]"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="digite para filtrar"
+          />
         </div>
-        <Button size="sm" variant="ghost" className="h-7" onClick={() => { setFrom(""); setTo(""); setVendor(""); setSearch(""); }}>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-7"
+          onClick={() => {
+            setFrom("");
+            setTo("");
+            setVendor("");
+            setSearch("");
+          }}
+        >
           Limpar
         </Button>
       </div>
@@ -207,11 +318,17 @@ function Relatorio() {
         <Stat label="Solicitações no período" value={filtered.length} tone="warm" />
         <Stat label="Referências únicas" value={uniqueRefs} />
         <div className="panel px-3 py-2 md:col-span-2">
-          <div className="text-[10.5px] uppercase tracking-wider text-muted-foreground">Top 5 mais pedidos</div>
+          <div className="text-[10.5px] uppercase tracking-wider text-muted-foreground">
+            Top 5 mais pedidos
+          </div>
           <div className="mt-1 flex flex-wrap gap-1.5">
             {top5.length === 0 && <span className="text-muted-foreground">—</span>}
             {top5.map((r, i) => (
-              <span key={r.reference} className={`num rounded px-1.5 py-0.5 text-[11.5px] ${i < 3 ? "rank-hot" : "rank-warm"}`} title={r.description ?? ""}>
+              <span
+                key={r.reference}
+                className={`num rounded px-1.5 py-0.5 text-[11.5px] ${i < 3 ? "rank-hot" : "rank-warm"}`}
+                title={r.description ?? ""}
+              >
                 {r.reference} <b>×{r.total_requests}</b>
               </span>
             ))}
@@ -232,24 +349,46 @@ function Relatorio() {
                   <th className="w-10">#</th>
                   <th>Referência</th>
                   <th>Descrição</th>
+                  <th>Filial</th>
                   <th className="text-right">Solic.</th>
                   <th className="text-right">Qtd</th>
-                  <th className="text-right">Estoque</th>
+                  <th className="text-right">Estoque (filial)</th>
                 </tr>
               </thead>
               <tbody>
                 {ranking.data?.length === 0 && (
-                  <tr><td colSpan={6} className="py-5 text-center text-muted-foreground">Sem dados no período.</td></tr>
+                  <tr>
+                    <td colSpan={7} className="py-5 text-center text-muted-foreground">
+                      Sem dados no período.
+                    </td>
+                  </tr>
                 )}
                 {ranking.data?.map((r, i) => (
                   <tr key={r.reference}>
-                    <td><span className={`num inline-block rounded px-1.5 text-[11px] font-semibold ${i < 3 ? "rank-hot" : i < 10 ? "rank-warm" : "bg-muted"}`}>{i + 1}</span></td>
+                    <td>
+                      <span
+                        className={`num inline-block rounded px-1.5 text-[11px] font-semibold ${i < 3 ? "rank-hot" : i < 10 ? "rank-warm" : "bg-muted"}`}
+                      >
+                        {i + 1}
+                      </span>
+                    </td>
                     <td className="num font-medium">{r.reference}</td>
-                    <td className="max-w-56 truncate" title={r.description ?? ""}>{r.description || "—"}</td>
+                    <td className="max-w-56 truncate" title={r.description ?? ""}>
+                      {r.description || "—"}
+                    </td>
+                    <td className="whitespace-nowrap">{r.branch || "Sem filial"}</td>
                     <td className="num text-right font-semibold">{r.total_requests}</td>
                     <td className="num text-right">{r.total_quantity || "—"}</td>
                     <td className="text-right">
-                      {r.current_stock === null ? <span className="text-muted-foreground">—</span> : <span className={`num ${Number(r.current_stock) === 0 ? "stock-zero" : ""}`}>{Number(r.current_stock)}</span>}
+                      {r.current_stock === null ? (
+                        <span className="text-muted-foreground">—</span>
+                      ) : (
+                        <span
+                          className={`num ${Number(r.current_stock) === 0 ? "stock-zero" : ""}`}
+                        >
+                          {Number(r.current_stock)}
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -260,7 +399,8 @@ function Relatorio() {
 
         <section className="panel self-start">
           <div className="border-b px-3 py-2 text-[13px] font-semibold">
-            Solicitações <span className="font-normal text-muted-foreground">· {filtered.length}</span>
+            Solicitações{" "}
+            <span className="font-normal text-muted-foreground">· {filtered.length}</span>
           </div>
           <div className="max-h-[70vh] overflow-auto">
             <table className="table-dense w-full">
@@ -278,30 +418,57 @@ function Relatorio() {
               </thead>
               <tbody>
                 {requests.isLoading && (
-                  <tr><td colSpan={8} className="py-5 text-center text-muted-foreground">Carregando…</td></tr>
+                  <tr>
+                    <td colSpan={8} className="py-5 text-center text-muted-foreground">
+                      Carregando…
+                    </td>
+                  </tr>
                 )}
                 {filtered.length === 0 && !requests.isLoading && (
-                  <tr><td colSpan={8} className="py-5 text-center text-muted-foreground">Nenhuma solicitação no período.</td></tr>
+                  <tr>
+                    <td colSpan={8} className="py-5 text-center text-muted-foreground">
+                      Nenhuma solicitação no período.
+                    </td>
+                  </tr>
                 )}
                 {filtered.map((r) => (
                   <tr key={r.id}>
-                    <td className="whitespace-nowrap text-muted-foreground">{formatDateTime(r.created_at)}</td>
+                    <td className="whitespace-nowrap text-muted-foreground">
+                      {formatDateTime(r.created_at)}
+                    </td>
                     <td className="num font-medium whitespace-nowrap">
                       {r.reference}
-                      {r.kind === "manual" && <span className="ml-1 rounded bg-muted px-1 text-[9.5px] uppercase text-muted-foreground">flag</span>}
+                      {r.kind === "manual" && (
+                        <span className="ml-1 rounded bg-muted px-1 text-[9.5px] uppercase text-muted-foreground">
+                          flag
+                        </span>
+                      )}
                     </td>
-                    <td className="max-w-48 truncate" title={r.description ?? ""}>{r.description || "—"}</td>
+                    <td className="max-w-48 truncate" title={r.description ?? ""}>
+                      {r.description || "—"}
+                    </td>
                     <td className="max-w-36 truncate">{r.customer_name ?? "—"}</td>
                     <td className="whitespace-nowrap">{nameOf.get(r.user_id) ?? "—"}</td>
                     <td className="num text-right">{r.quantity ?? "—"}</td>
-                    <td className="max-w-32 truncate text-muted-foreground">{r.customer_contact ?? "—"}</td>
+                    <td className="max-w-32 truncate text-muted-foreground">
+                      {r.customer_contact ?? "—"}
+                    </td>
                     <td>
                       <div className="flex justify-end gap-0.5">
-                        <button className="rounded p-1 hover:bg-accent" title="Editar" onClick={() => setEditing(r)}><Pencil className="h-3.5 w-3.5" /></button>
+                        <button
+                          className="rounded p-1 hover:bg-accent"
+                          title="Editar"
+                          onClick={() => setEditing(r)}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
                         <button
                           className="rounded p-1 text-destructive hover:bg-accent"
                           title="Excluir"
-                          onClick={() => { if (confirm(`Excluir a solicitação ${r.reference}?`)) remove.mutate(r.id); }}
+                          onClick={() => {
+                            if (confirm(`Excluir a solicitação ${r.reference}?`))
+                              remove.mutate(r.id);
+                          }}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>
@@ -351,13 +518,45 @@ function EditDialog({ req, onClose }: { req: Req; onClose: () => void }) {
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-md">
-        <DialogHeader><DialogTitle>Editar solicitação · <span className="num">{req.reference}</span></DialogTitle></DialogHeader>
+        <DialogHeader>
+          <DialogTitle>
+            Editar solicitação · <span className="num">{req.reference}</span>
+          </DialogTitle>
+        </DialogHeader>
         <div className="space-y-2">
-          <div><Label>Descrição</Label><Input value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} /></div>
-          <div><Label>Quantidade</Label><Input type="number" min={1} value={f.quantity} onChange={(e) => setF({ ...f, quantity: e.target.value })} /></div>
-          <div><Label>Cliente</Label><Input value={f.customer_name} onChange={(e) => setF({ ...f, customer_name: e.target.value })} /></div>
-          <div><Label>Contato</Label><Input value={f.customer_contact} onChange={(e) => setF({ ...f, customer_contact: e.target.value })} /></div>
-          <Button className="w-full" onClick={() => m.mutate()} disabled={m.isPending}>Salvar</Button>
+          <div>
+            <Label>Descrição</Label>
+            <Input
+              value={f.description}
+              onChange={(e) => setF({ ...f, description: e.target.value })}
+            />
+          </div>
+          <div>
+            <Label>Quantidade</Label>
+            <Input
+              type="number"
+              min={1}
+              value={f.quantity}
+              onChange={(e) => setF({ ...f, quantity: e.target.value })}
+            />
+          </div>
+          <div>
+            <Label>Cliente</Label>
+            <Input
+              value={f.customer_name}
+              onChange={(e) => setF({ ...f, customer_name: e.target.value })}
+            />
+          </div>
+          <div>
+            <Label>Contato</Label>
+            <Input
+              value={f.customer_contact}
+              onChange={(e) => setF({ ...f, customer_contact: e.target.value })}
+            />
+          </div>
+          <Button className="w-full" onClick={() => m.mutate()} disabled={m.isPending}>
+            Salvar
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { requirePanel } from "@/lib/route-guard";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
@@ -6,7 +7,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/AppShell";
 import { useMe } from "@/hooks/use-me";
-import { createDemandRequestBatch } from "@/lib/demand.functions";
+import { createDemandRequestBatch, NORMAQ_BRANCHES } from "@/lib/demand.functions";
 import { supabase } from "@/integrations/supabase/client";
 import { formatDateTime } from "@/lib/datetime";
 import { Input } from "@/components/ui/input";
@@ -15,16 +16,21 @@ import { Button } from "@/components/ui/button";
 import { PartSearchInput } from "@/components/PartSearchInput";
 
 export const Route = createFileRoute("/_authenticated/solicitar")({
+  beforeLoad: () => requirePanel("solicitar"),
   validateSearch: (search: Record<string, unknown>) => ({
     reference: typeof search["reference"] === "string" ? search["reference"].slice(0, 60) : "",
-    description: typeof search["description"] === "string" ? search["description"].slice(0, 200) : "",
+    description:
+      typeof search["description"] === "string" ? search["description"].slice(0, 200) : "",
   }),
   head: () => ({
     meta: [
       { title: "Registrar Solicitação — Demanda de Peças" },
       { name: "description", content: "Registre uma ou várias peças solicitadas por um cliente." },
       { property: "og:title", content: "Registrar Solicitação — Demanda de Peças" },
-      { property: "og:description", content: "Registre uma ou várias peças solicitadas por um cliente." },
+      {
+        property: "og:description",
+        content: "Registre uma ou várias peças solicitadas por um cliente.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
     ],
@@ -39,7 +45,7 @@ function Solicitar() {
   const searchParams = Route.useSearch();
   const qc = useQueryClient();
   const create = useServerFn(createDemandRequestBatch);
-  const [form, setForm] = useState({ customer_name: "", customer_contact: "" });
+  const [form, setForm] = useState({ customer_name: "", customer_contact: "", branch: "" });
   const [items, setItems] = useState<RequestItem[]>([
     { reference: searchParams.reference, description: searchParams.description, quantity: "1" },
   ]);
@@ -62,6 +68,7 @@ function Solicitar() {
     mutationFn: () =>
       create({
         data: {
+          branch: form.branch,
           customer_name: form.customer_name,
           customer_contact: form.customer_contact,
           items: items.map((item) => ({
@@ -72,8 +79,10 @@ function Solicitar() {
         },
       }),
     onSuccess: (rows) => {
-      toast.success(`${rows.length} ${rows.length === 1 ? "peça registrada" : "peças registradas"} com sucesso`);
-      setForm({ customer_name: "", customer_contact: "" });
+      toast.success(
+        `${rows.length} ${rows.length === 1 ? "peça registrada" : "peças registradas"} com sucesso`,
+      );
+      setForm({ customer_name: "", customer_contact: "", branch: "" });
       setItems([{ reference: "", description: "", quantity: "1" }]);
       setNow(new Date());
       qc.invalidateQueries({ queryKey: ["requests"] });
@@ -82,14 +91,21 @@ function Solicitar() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const set =
+    (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+      setForm((f) => ({ ...f, [k]: e.target.value }));
   const setItem = (index: number, key: keyof RequestItem, value: string) => {
-    setItems((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, [key]: value } : item));
+    setItems((current) =>
+      current.map((item, itemIndex) => (itemIndex === index ? { ...item, [key]: value } : item)),
+    );
   };
 
   return (
     <div className="space-y-4">
-      <PageHeader title="Registrar Solicitação" subtitle="Registre uma ou várias peças solicitadas pelo cliente" />
+      <PageHeader
+        title="Registrar Solicitação"
+        subtitle="Registre uma ou várias peças solicitadas pelo cliente"
+      />
       <div className="grid gap-4 xl:grid-cols-[560px_1fr]">
         <form
           className="panel space-y-3 p-4"
@@ -99,11 +115,19 @@ function Solicitar() {
               toast.error("Nome do cliente é obrigatório");
               return;
             }
+            if (!(NORMAQ_BRANCHES as readonly string[]).includes(form.branch)) {
+              toast.error("Selecione uma filial válida");
+              return;
+            }
             if (items.some((item) => !item.reference.trim())) {
               toast.error("Informe a referência de todas as peças");
               return;
             }
-            if (items.some((item) => !Number.isInteger(Number(item.quantity)) || Number(item.quantity) < 1)) {
+            if (
+              items.some(
+                (item) => !Number.isInteger(Number(item.quantity)) || Number(item.quantity) < 1,
+              )
+            ) {
               toast.error("Informe uma quantidade válida para todas as peças");
               return;
             }
@@ -112,7 +136,30 @@ function Solicitar() {
         >
           <div className="space-y-1">
             <Label>Nome do Cliente *</Label>
-            <Input value={form.customer_name} onChange={set("customer_name")} maxLength={120} required autoFocus />
+            <Input
+              value={form.customer_name}
+              onChange={set("customer_name")}
+              maxLength={120}
+              required
+              autoFocus
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="branch">Filial *</Label>
+            <select
+              id="branch"
+              required
+              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+              value={form.branch}
+              onChange={set("branch")}
+            >
+              <option value="">Selecione a filial</option>
+              {NORMAQ_BRANCHES.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
           </div>
           <div className="space-y-2">
             <div className="flex items-center justify-between">
@@ -120,10 +167,21 @@ function Solicitar() {
               <span className="text-[11px] text-muted-foreground">{items.length}/50</span>
             </div>
             {items.map((item, index) => (
-              <div key={index} className="grid grid-cols-[1fr_1.25fr_72px_28px] items-end gap-1.5 rounded-md border bg-background/45 p-2">
+              <div
+                key={index}
+                className="grid grid-cols-[1fr_1.25fr_72px_28px] items-end gap-1.5 rounded-md border bg-background/45 p-2"
+              >
                 <div className="space-y-1">
                   <Label htmlFor={`reference-${index}`}>Referência</Label>
-                  <Input id={`reference-${index}`} className="num uppercase" value={item.reference} onChange={(e) => setItem(index, "reference", e.target.value)} maxLength={60} required placeholder="320/A7130" />
+                  <Input
+                    id={`reference-${index}`}
+                    className="num uppercase"
+                    value={item.reference}
+                    onChange={(e) => setItem(index, "reference", e.target.value)}
+                    maxLength={60}
+                    required
+                    placeholder="320/A7130"
+                  />
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor={`description-${index}`}>Descrição</Label>
@@ -131,19 +189,58 @@ function Solicitar() {
                     id={`description-${index}`}
                     value={item.description}
                     onChange={(v) => setItem(index, "description", v)}
-                    onPick={(p) => setItems((current) => current.map((it, i) => (i === index ? { ...it, reference: p.reference, description: p.description } : it)))}
+                    onPick={(p) =>
+                      setItems((current) =>
+                        current.map((it, i) =>
+                          i === index
+                            ? { ...it, reference: p.reference, description: p.description }
+                            : it,
+                        ),
+                      )
+                    }
                   />
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor={`quantity-${index}`}>Qtd.</Label>
-                  <Input id={`quantity-${index}`} className="num" type="number" min={1} max={100000} value={item.quantity} onChange={(e) => setItem(index, "quantity", e.target.value)} required />
+                  <Input
+                    id={`quantity-${index}`}
+                    className="num"
+                    type="number"
+                    min={1}
+                    max={100000}
+                    value={item.quantity}
+                    onChange={(e) => setItem(index, "quantity", e.target.value)}
+                    required
+                  />
                 </div>
-                <Button type="button" variant="ghost" size="icon" className="h-9 w-7 text-muted-foreground hover:text-destructive" disabled={items.length === 1} title="Remover peça" onClick={() => setItems((current) => current.filter((_, itemIndex) => itemIndex !== index))}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-7 text-muted-foreground hover:text-destructive"
+                  disabled={items.length === 1}
+                  title="Remover peça"
+                  onClick={() =>
+                    setItems((current) => current.filter((_, itemIndex) => itemIndex !== index))
+                  }
+                >
                   <Trash2 className="h-3.5 w-3.5" />
                 </Button>
               </div>
             ))}
-            <Button type="button" variant="outline" size="sm" className="w-full" disabled={items.length >= 50} onClick={() => setItems((current) => [...current, { reference: "", description: "", quantity: "1" }])}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="w-full"
+              disabled={items.length >= 50}
+              onClick={() =>
+                setItems((current) => [
+                  ...current,
+                  { reference: "", description: "", quantity: "1" },
+                ])
+              }
+            >
               <Plus className="h-3.5 w-3.5" /> Adicionar outra peça
             </Button>
           </div>
@@ -159,7 +256,12 @@ function Solicitar() {
           </div>
           <div className="space-y-1">
             <Label>Contato do Cliente</Label>
-            <Input value={form.customer_contact} onChange={set("customer_contact")} maxLength={120} placeholder="e-mail ou telefone (opcional)" />
+            <Input
+              value={form.customer_contact}
+              onChange={set("customer_contact")}
+              maxLength={120}
+              placeholder="e-mail ou telefone (opcional)"
+            />
           </div>
           <Button type="submit" className="w-full" disabled={m.isPending}>
             {m.isPending ? "Registrando…" : "Registrar Solicitação"}
@@ -167,13 +269,16 @@ function Solicitar() {
         </form>
 
         <section className="panel">
-          <div className="border-b px-3 py-2 text-[13px] font-semibold">Últimos registros manuais</div>
+          <div className="border-b px-3 py-2 text-[13px] font-semibold">
+            Últimos registros manuais
+          </div>
           <table className="table-dense w-full">
             <thead>
               <tr className="border-b text-left">
                 <th>Data</th>
                 <th>Referência</th>
                 <th>Descrição</th>
+                <th>Filial</th>
                 <th>Cliente</th>
                 <th>Contato</th>
                 <th className="text-right">Qtd</th>
@@ -181,13 +286,22 @@ function Solicitar() {
             </thead>
             <tbody>
               {recent.data?.length === 0 && (
-                <tr><td colSpan={6} className="py-5 text-center text-muted-foreground">Nenhum registro ainda.</td></tr>
+                <tr>
+                  <td colSpan={7} className="py-5 text-center text-muted-foreground">
+                    Nenhum registro ainda.
+                  </td>
+                </tr>
               )}
               {recent.data?.map((r) => (
                 <tr key={r.id}>
-                  <td className="whitespace-nowrap text-muted-foreground">{formatDateTime(r.created_at)}</td>
+                  <td className="whitespace-nowrap text-muted-foreground">
+                    {formatDateTime(r.created_at)}
+                  </td>
                   <td className="num font-medium">{r.reference}</td>
-                  <td className="max-w-xs truncate">{r.description ?? <span className="text-muted-foreground">—</span>}</td>
+                  <td className="max-w-xs truncate">
+                    {r.description ?? <span className="text-muted-foreground">—</span>}
+                  </td>
+                  <td className="whitespace-nowrap">{r.branch || "Sem filial"}</td>
                   <td>{r.customer_name}</td>
                   <td className="text-muted-foreground">{r.customer_contact ?? "—"}</td>
                   <td className="num text-right">{r.quantity ?? "—"}</td>
