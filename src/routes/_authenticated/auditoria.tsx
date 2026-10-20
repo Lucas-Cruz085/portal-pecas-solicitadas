@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { requirePanel } from "@/lib/route-guard";
+import { requirePanel, userIdFromContext } from "@/lib/route-guard";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { endOfDayBR, formatDateTime, startOfDayBR } from "@/lib/datetime";
 
 export const Route = createFileRoute("/_authenticated/auditoria")({
-  beforeLoad: () => requirePanel("auditoria"),
+  beforeLoad: ({ context }) => requirePanel("auditoria", userIdFromContext(context)),
   head: () => ({ meta: [{ title: "Auditoria — Demanda de Peças" }] }),
   component: () => (
     <AdminOnly>

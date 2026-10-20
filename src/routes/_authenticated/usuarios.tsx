@@ -1,12 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { requirePanel } from "@/lib/route-guard";
+import { requirePanel, userIdFromContext } from "@/lib/route-guard";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useMemo, useState } from "react";
 import { KeyRound, Pencil, Search, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { AdminOnly, PageHeader } from "@/components/AppShell";
-import { createUser, listUsers, updateUser, resetUserPassword } from "@/lib/auth.functions";
+import { createUser, listUsers, updateUser, resetUserPassword, listPasswordResetRequests } from "@/lib/auth.functions";
 import { listPermissions, setUserPermissions, PANELS, PANEL_LABELS, type Panel } from "@/lib/permissions.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,7 +18,7 @@ import { formatDateTime } from "@/lib/datetime";
 import { useMe } from "@/hooks/use-me";
 
 export const Route = createFileRoute("/_authenticated/usuarios")({
-  beforeLoad: () => requirePanel("usuarios"),
+  beforeLoad: ({ context }) => requirePanel("usuarios", userIdFromContext(context)),
   head: () => ({ meta: [{ title: "Gestão de Usuários — Demanda de Peças" }] }),
   component: () => (
     <AdminOnly>
@@ -63,6 +63,12 @@ function Usuarios() {
   const update = useServerFn(updateUser);
   const savePerms = useServerFn(setUserPermissions);
   const resetPw = useServerFn(resetUserPassword);
+  const fetchResets = useServerFn(listPasswordResetRequests);
+  const resets = useQuery({
+    queryKey: ["password-reset-requests"],
+    queryFn: () => fetchResets(),
+    staleTime: 30 * 1000,
+  });
 
   const users = useQuery({ queryKey: ["users"], queryFn: () => fetchUsers() });
   const perms = useQuery({ queryKey: ["permissions"], queryFn: () => fetchPerms() });
@@ -72,7 +78,7 @@ function Usuarios() {
   const [edit, setEdit] = useState<UserRow | null>(null);
   const [confirmReset, setConfirmReset] = useState<UserRow | null>(null);
   const [tempPassword, setTempPassword] = useState<string | null>(null);
-  const [nf, setNf] = useState({ username: "", password: "", full_name: "", email: "", role: "consultor" as Role, panels: [] as Panel[] });
+  const [nf, setNf] = useState({ username: "", password: "", full_name: "", email: "", role: "consultor" as Role, panels: ["inicio", "solicitar", "relatorio"] as Panel[] });
   const [ef, setEf] = useState({ full_name: "", email: "", role: "consultor" as Role });
   const [ep, setEp] = useState<Panel[]>([]);
 
@@ -98,11 +104,12 @@ function Usuarios() {
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["users"] });
     qc.invalidateQueries({ queryKey: ["permissions"] });
+    qc.invalidateQueries({ queryKey: ["password-reset-requests"] });
   };
 
   const mCreate = useMutation({
     mutationFn: () => create({ data: nf }),
-    onSuccess: () => { toast.success("Usuário criado e ativo"); setOpen(false); setNf({ username: "", password: "", full_name: "", email: "", role: "consultor", panels: [] }); invalidate(); },
+    onSuccess: () => { toast.success("Usuário criado e ativo"); setOpen(false); setNf({ username: "", password: "", full_name: "", email: "", role: "consultor", panels: ["inicio", "solicitar", "relatorio"] }); invalidate(); },
     onError: (e: Error) => toast.error(e.message),
   });
   const mEdit = useMutation({
@@ -135,6 +142,30 @@ function Usuarios() {
         subtitle="Cadastre consultores e administradores com usuário e senha"
         right={<Button size="sm" className="h-7" onClick={() => setOpen(true)}><UserPlus className="mr-1 h-3.5 w-3.5" /> Novo usuário</Button>}
       />
+
+      {(resets.data?.length ?? 0) > 0 && (
+        <section className="panel space-y-2 p-3">
+          <div className="text-[13px] font-semibold">Pedidos de redefinição de senha</div>
+          <p className="text-[12px] text-muted-foreground">Visível para todos os administradores até a senha ser redefinida.</p>
+          {(resets.data ?? []).map((request) => {
+            const user = (users.data ?? []).find((u) => u.id === request.userId || u.username.toLowerCase() === request.username.toLowerCase());
+            return (
+              <div key={request.username + request.requestedAt} className="flex flex-wrap items-center justify-between gap-2 text-[12.5px]">
+                <span>
+                  <span className="num font-medium">{request.username}</span>
+                  {" pediu nova senha em "}
+                  {formatDateTime(request.requestedAt)}
+                </span>
+                {user ? (
+                  <Button type="button" size="sm" className="h-7" onClick={() => { setTempPassword(null); setConfirmReset(user); }}>Gerar senha temporária</Button>
+                ) : (
+                  <span className="text-muted-foreground">Usuário não encontrado no cadastro</span>
+                )}
+              </div>
+            );
+          })}
+        </section>
+      )}
 
       <section className="panel p-2">
         <div className="relative max-w-sm">

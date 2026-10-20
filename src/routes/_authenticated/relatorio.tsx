@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { requirePanel } from "@/lib/route-guard";
+import { requirePanel, userIdFromContext } from "@/lib/route-guard";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Download, FileSpreadsheet, FileText, Pencil, Trash2 } from "lucide-react";
 import { exportPdf, exportXlsx, type ExportTable } from "@/lib/report-export";
 import { toast } from "sonner";
@@ -18,7 +18,7 @@ import { deleteDemandRequest, updateDemandRequest } from "@/lib/demand.functions
 import type { Tables } from "@/integrations/supabase/types";
 
 export const Route = createFileRoute("/_authenticated/relatorio")({
-  beforeLoad: () => requirePanel("relatorio"),
+  beforeLoad: ({ context }) => requirePanel("relatorio", userIdFromContext(context)),
   head: () => ({ meta: [{ title: "Relatório de Demanda — Demanda de Peças" }] }),
   component: Relatorio,
 });
@@ -36,10 +36,17 @@ function Relatorio() {
   const [to, setTo] = useState(todayISO());
   const [vendor, setVendor] = useState("");
   const [search, setSearch] = useState("");
+  const [rankingSearch, setRankingSearch] = useState("");
   const [editing, setEditing] = useState<Req | null>(null);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setRankingSearch(search.trim()), 400);
+    return () => clearTimeout(timer);
+  }, [search]);
 
   const profiles = useQuery({
     queryKey: ["profiles", "names"],
+    staleTime: 5 * 60 * 1000,
     queryFn: async () => {
       const { data, error } = await supabase.from("profiles").select("*");
       if (error) throw error;
@@ -67,6 +74,7 @@ function Relatorio() {
   const requests = useQuery({
     queryKey: ["requests", "report", range, userFilter],
     enabled: Boolean(me),
+    staleTime: 60 * 1000,
     queryFn: async () => {
       let q = supabase
         .from("demand_requests")
@@ -83,14 +91,15 @@ function Relatorio() {
   });
 
   const ranking = useQuery({
-    queryKey: ["ranking", "report", range, userFilter, search],
+    queryKey: ["ranking", "report", range, userFilter, rankingSearch],
     enabled: Boolean(me),
+    staleTime: 60 * 1000,
     queryFn: async () => {
       const args: { _from?: string; _to?: string; _user?: string; _search?: string } = {};
       if (range.from) args._from = range.from;
       if (range.to) args._to = range.to;
       if (userFilter) args._user = userFilter;
-      if (search) args._search = search;
+      if (rankingSearch) args._search = rankingSearch;
       const { data, error } = await supabase.rpc("demand_ranking_by_branch", args);
       if (error) throw error;
       return data;

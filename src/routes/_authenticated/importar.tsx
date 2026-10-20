@@ -5,6 +5,7 @@ import { useState } from "react";
 import { FileUp } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { userIdFromContext } from "@/lib/route-guard";
 import { AdminOnly, PageHeader, Stat } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { importStock } from "@/lib/stock.functions";
@@ -12,11 +13,15 @@ import type { StockRow } from "@/lib/pdf-parser";
 import { formatDateTime } from "@/lib/datetime";
 
 export const Route = createFileRoute("/_authenticated/importar")({
-  beforeLoad: async () => {
-    const { data, error } = await supabase.auth.getUser();
-    if (error || !data.user) throw redirect({ to: "/auth" });
+  beforeLoad: async ({ context }) => {
+    let userId = userIdFromContext(context);
+    if (!userId) {
+      const { data, error } = await supabase.auth.getUser();
+      if (error || !data.user) throw redirect({ to: "/auth" });
+      userId = data.user.id;
+    }
     const { data: isAdmin } = await supabase.rpc("has_role", {
-      _user_id: data.user.id,
+      _user_id: userId,
       _role: "admin",
     });
     if (!isAdmin) throw redirect({ to: "/inicio" });

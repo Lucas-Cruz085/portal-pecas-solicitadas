@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { requirePanel } from "@/lib/route-guard";
+import { requirePanel, userIdFromContext } from "@/lib/route-guard";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { PartSearchInput } from "@/components/PartSearchInput";
 
 export const Route = createFileRoute("/_authenticated/solicitar")({
-  beforeLoad: () => requirePanel("solicitar"),
+  beforeLoad: ({ context }) => requirePanel("solicitar", userIdFromContext(context)),
   validateSearch: (search: Record<string, unknown>) => ({
     reference: typeof search["reference"] === "string" ? search["reference"].slice(0, 60) : "",
     description:
@@ -53,6 +53,7 @@ function Solicitar() {
 
   const recent = useQuery({
     queryKey: ["requests", "mine-recent"],
+    staleTime: 30 * 1000,
     queryFn: async () => {
       const { data } = await supabase
         .from("demand_requests")

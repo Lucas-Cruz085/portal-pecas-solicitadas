@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { requirePanel } from "@/lib/route-guard";
+import { requirePanel, userIdFromContext } from "@/lib/route-guard";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Search } from "lucide-react";
@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { formatDateTime, formatQty } from "@/lib/datetime";
 
 export const Route = createFileRoute("/_authenticated/inicio")({
-  beforeLoad: () => requirePanel("inicio"),
+  beforeLoad: ({ context }) => requirePanel("inicio", userIdFromContext(context)),
   head: () => ({ meta: [{ title: "Início — Demanda de Peças" }] }),
   component: Inicio,
 });
@@ -74,6 +74,7 @@ function Inicio() {
 
   const ranking = useQuery({
     queryKey: ["ranking", "all"],
+    staleTime: 3 * 60 * 1000,
     queryFn: async () => {
       const { data, error } = await supabase.rpc("demand_ranking_by_branch", {});
       if (error) throw error;
@@ -83,6 +84,7 @@ function Inicio() {
 
   const stock = useQuery({
     queryKey: ["stock-normaq", branch, applied, stockPage],
+    staleTime: 3 * 60 * 1000,
     queryFn: async () => {
       const from = stockPage * STOCK_PAGE;
       const to = from + STOCK_PAGE - 1;
@@ -102,6 +104,7 @@ function Inicio() {
 
   const stockUpdated = useQuery({
     queryKey: ["stock-normaq-updated", branch],
+    staleTime: 3 * 60 * 1000,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("stock_items_normaq")

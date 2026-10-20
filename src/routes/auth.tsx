@@ -60,7 +60,7 @@ function AuthPage() {
     setLoading(true);
     try {
       await forgotFn({ data: { username: u } });
-      setInfo("Procure um administrador para redefinir sua senha. O acesso volta quando ele gerar uma senha temporária para você.");
+      setInfo("Os administradores foram avisados. Procure um deles para receber a nova senha.");
     } catch (e) {
       setError(messageOf(e, "Não foi possível registrar o pedido."));
     }

@@ -95,8 +95,8 @@ export const forgotPassword = createServerFn({ method: "POST" })
     const { writeAudit } = await import("./audit.server");
     const username = data.username.toLowerCase();
     const ip = clientAddress();
-    assertRateLimit(`forgot:user:${username}`, 3, 60 * 60 * 1000);
-    assertRateLimit(`forgot:ip:${ip}`, 5, 60 * 60 * 1000);
+    assertRateLimit(`forgot:user:${username}`, 10, 60 * 60 * 1000);
+    assertRateLimit(`forgot:ip:${ip}`, 40, 60 * 60 * 1000);
 
     const { data: prof } = await supabaseAdmin
       .from("profiles")
@@ -110,9 +110,38 @@ export const forgotPassword = createServerFn({ method: "POST" })
       entity: "usuario",
       entityId: prof?.id ?? null,
       after: { encaminhado_ao_admin: true },
-    });
+    }, true);
     return { ok: true };
   });
+
+export const listPasswordResetRequests = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { loadCaller } = await import("./audit.server");
+    const { isAdmin } = await loadCaller(context.supabase, context.userId, { allowPendingPassword: true });
+    if (!isAdmin) return [];
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data, error } = await supabaseAdmin
+      .from("audit_logs")
+      .select("username, action, created_at, entity_id")
+      .in("action", ["tentativa_esqueci_senha", "resetar_senha_padrao", "redefinir_senha"])
+      .order("created_at", { ascending: false })
+      .limit(400);
+    if (error) return [];
+    const newest = new Map();
+    for (const row of data ?? []) {
+      const key = row.entity_id ? "id:" + row.entity_id : "name:" + String(row.username || "").toLowerCase();
+      if (!key.endsWith(":") && !newest.has(key)) newest.set(key, row);
+    }
+    return [...newest.values()]
+      .filter((row) => row.action === "tentativa_esqueci_senha")
+      .map((row) => ({
+        username: row.username,
+        requestedAt: row.created_at,
+        userId: row.entity_id,
+      }));
+  });
+
 
 export const getMe = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
@@ -278,7 +307,7 @@ export const createUser = createServerFn({ method: "POST" })
       PANELS.map((panel) => ({
         user_id: uid,
         panel,
-        allowed: data.role === "admin" ? true : data.panels.includes(panel),
+        allowed: data.role === "admin" ? true : (data.panels.length > 0 ? data.panels : ["inicio", "solicitar", "relatorio"]).includes(panel),
       })),
       { onConflict: "user_id,panel" },
     );
@@ -302,7 +331,7 @@ export const createUser = createServerFn({ method: "POST" })
             email: data.email || null,
             role: data.role,
             is_active: true,
-            paineis: data.role === "admin" ? [...PANELS] : data.panels,
+            paineis: data.role === "admin" ? [...PANELS] : (data.panels.length > 0 ? data.panels : ["inicio", "solicitar", "relatorio"]),
           },
         },
         true,
@@ -474,7 +503,14 @@ export const changeOwnPassword = createServerFn({ method: "POST" })
     if (isRetiredPassword(data.password)) throw new Error("Escolha uma senha diferente da senha padrão antiga");
 
     const auth = createEphemeralAuth();
-    const email = usernameToEmail(profile.username);
+    const { data: resolvedEmail } = await supabaseAdmin.rpc(
+      "get_email_by_username" as never,
+      { _username: profile.username.toLowerCase() } as never,
+    );
+    const email =
+      typeof resolvedEmail === "string" && resolvedEmail.includes("@")
+        ? resolvedEmail
+        : usernameToEmail(profile.username);
     if (!profile.needs_password_change) {
       if (!data.current) throw new Error("Informe a senha atual.");
       const current = await auth.auth.signInWithPassword({ email, password: data.current });

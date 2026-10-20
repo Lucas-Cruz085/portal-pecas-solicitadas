@@ -1,4 +1,6 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
 import {
   LayoutGrid,
   ClipboardPlus,
@@ -7,12 +9,14 @@ import {
   Users,
   ScrollText,
   LogOut,
+  KeyRound,
   PanelLeftClose,
   PanelLeftOpen,
   type LucideIcon,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { useMe, useSignOut } from "@/hooks/use-me";
+import { listPasswordResetRequests } from "@/lib/auth.functions";
 
 type Item = { to: string; label: string; icon: LucideIcon; admin?: boolean };
 
@@ -30,6 +34,15 @@ const SIDEBAR_KEY = "sidebar-collapsed";
 export function AppShell({ children }: { children: ReactNode }) {
   const { data: me } = useMe();
   const signOut = useSignOut();
+  const fetchResets = useServerFn(listPasswordResetRequests);
+  const resetRequests = useQuery({
+    queryKey: ["password-reset-requests"],
+    queryFn: () => fetchResets(),
+    enabled: Boolean(me?.isAdmin),
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
+  });
+  const resetCount = me?.isAdmin ? (resetRequests.data?.length ?? 0) : 0;
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [collapsed, setCollapsed] = useState(false);
@@ -102,6 +115,9 @@ export function AppShell({ children }: { children: ReactNode }) {
               >
                 <i.icon className="h-4 w-4 shrink-0" />
                 {!collapsed && <span className="truncate">{i.label}</span>}
+                {i.to === "/usuarios" && resetCount > 0 && (
+                  <span className="ml-auto min-w-4 rounded bg-primary px-1 text-center text-[10px] font-semibold text-primary-foreground">{resetCount}</span>
+                )}
               </Link>
             ))}
         </nav>
@@ -114,6 +130,15 @@ export function AppShell({ children }: { children: ReactNode }) {
               </div>
             </>
           )}
+          <Link
+            to="/trocar-senha"
+            title="Alterar senha"
+            aria-label="Alterar senha"
+            className={`flex items-center rounded text-[12px] hover:bg-sidebar-accent ${collapsed ? "w-full justify-center px-0 py-1.5" : "mt-2 w-full gap-2 px-2 py-1.5"}`}
+          >
+            <KeyRound className="h-3.5 w-3.5 shrink-0" />
+            {!collapsed && "Alterar senha"}
+          </Link>
           <button
             type="button"
             onClick={signOut}
@@ -126,7 +151,17 @@ export function AppShell({ children }: { children: ReactNode }) {
           </button>
         </div>
       </aside>
-      <main className={`min-w-0 flex-1 p-4 pb-10 transition-[margin] duration-200 lg:p-5 ${collapsed ? "ml-14" : "ml-56"}`}>{children}</main>
+      <main className={`min-w-0 flex-1 p-4 pb-10 transition-[margin] duration-200 lg:p-5 ${collapsed ? "ml-14" : "ml-56"}`}>
+        {resetCount > 0 && pathname !== "/usuarios" && (
+          <div className="mb-3 rounded border border-primary/40 bg-primary/10 px-3 py-2 text-[12.5px]">
+            {resetCount === 1
+              ? "1 usuário pediu redefinição de senha."
+              : resetCount + " usuários pediram redefinição de senha."}{" "}
+            <Link to="/usuarios" className="font-medium underline">Abrir Gestão de Usuários</Link>
+          </div>
+        )}
+        {children}
+      </main>
     </div>
   );
 }

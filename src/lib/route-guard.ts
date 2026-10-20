@@ -4,10 +4,18 @@ import { supabase } from "@/integrations/supabase/client";
 const ORDER = ["inicio", "solicitar", "relatorio"] as const;
 type GuardPanel = (typeof ORDER)[number] | "importar" | "usuarios" | "auditoria";
 
-export async function requirePanel(panel: GuardPanel) {
-  const { data, error } = await supabase.auth.getUser();
-  if (error || !data.user) throw redirect({ to: "/auth" });
-  const userId = data.user.id;
+export function userIdFromContext(context: object) {
+  const user = (context as { user?: { id?: string } }).user;
+  return user?.id;
+}
+
+export async function requirePanel(panel: GuardPanel, knownUserId?: string) {
+  let userId = knownUserId;
+  if (!userId) {
+    const { data, error } = await supabase.auth.getUser();
+    if (error || !data.user) throw redirect({ to: "/auth" });
+    userId = data.user.id;
+  }
   const { data: isAdmin } = await supabase.rpc("has_role", { _user_id: userId, _role: "admin" });
   if (isAdmin) return;
 
