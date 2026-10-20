@@ -93,6 +93,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         rel: "stylesheet",
         href: "https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap",
       },
+      {
+        rel: "stylesheet",
+        href: "https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Space+Grotesk:wght@500;600;700;800&display=swap",
+      },
       { rel: "icon", href: "/favicon.png", type: "image/png" },
     ],
   }),
@@ -135,12 +139,14 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
       <Outlet />
-      <footer
-        className={`fixed bottom-0 right-0 z-50 h-8 border-t border-border/60 bg-background/95 pb-1 text-center text-[10px] leading-7 text-muted-foreground backdrop-blur ${hasSidebar ? "left-56" : "left-0"}`}
-      >
-        Desenvolvido por Lucas Cruz | © 2026 NORMAQ - Todos os direitos reservados
-      </footer>
-      <Toaster theme="dark" richColors position="top-right" />
+      {pathname !== "/auth" && (
+        <footer
+          className={`fixed bottom-0 right-0 z-50 h-8 border-t border-border/60 bg-background/95 pb-1 text-center text-[10px] leading-7 text-muted-foreground backdrop-blur ${hasSidebar ? "left-56" : "left-0"}`}
+        >
+          Desenvolvido por Lucas Cruz | © 2026 NORMAQ - Todos os direitos reservados
+        </footer>
+      )}
+      <Toaster position="top-right" duration={8000} closeButton visibleToasts={4} offset={16} gap={10} style={{ zIndex: 80 }} />
     </QueryClientProvider>
   );
 }

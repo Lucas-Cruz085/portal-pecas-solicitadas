@@ -1,7 +1,8 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Eye, EyeOff, LockKeyhole, UserRound } from "lucide-react";
+import { Activity, ArrowRight, BrainCircuit, Eye, EyeOff, Layers3, Loader2, LockKeyhole, UserRound } from "lucide-react";
 import { useServerFn } from "@tanstack/react-start";
+import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { forgotPassword, login } from "@/lib/auth.functions";
 import { Input } from "@/components/ui/input";
@@ -11,14 +12,21 @@ import { Label } from "@/components/ui/label";
 export const Route = createFileRoute("/auth")({
   head: () => ({
     meta: [
-      { title: "Entrar — Demanda de Peças" },
-      { name: "description", content: "Acesso ao portal de demanda reprimida de peças da concessionária." },
-      { property: "og:title", content: "Entrar — Demanda de Peças" },
-      { property: "og:description", content: "Acesso ao portal de demanda reprimida de peças." },
+      { title: "Acesso restrito — Portal de Solicitação de Peças" },
+      { name: "robots", content: "noindex,nofollow,noarchive,noimageindex" },
+      { name: "description", content: "Acesso ao portal de solicitação de peças da NORMAQ JCB." },
+      { property: "og:title", content: "Acesso Restrito — NORMAQ JCB" },
+      { property: "og:description", content: "Entre com suas credenciais para acessar o painel." },
     ],
   }),
   component: AuthPage,
 });
+
+const highlights = [
+  { icon: Activity, label: "Solicitações em Andamento" },
+  { icon: BrainCircuit, label: "Demanda Reprimida" },
+  { icon: Layers3, label: "Relatório de Compras" },
+];
 
 function messageOf(error: unknown, fallback: string) {
   const message = error instanceof Error ? error.message : "";
@@ -27,140 +35,182 @@ function messageOf(error: unknown, fallback: string) {
     message.includes("Usuário ou senha inválidos") ||
     message.includes("Conta desativada") ||
     message.includes("Mínimo 3 caracteres") ||
-    message.includes("Use apenas letras")
+    message.includes("Use apenas letras") ||
+    message.includes("Informe") ||
+    message.includes("Perfil não encontrado") ||
+    message.includes("Não foi possível")
   ) {
     return message;
   }
   return fallback;
 }
 
+function BrandMark({ className = "" }: { className?: string }) {
+  return (
+    <div className={"flex items-center gap-3 " + className}>
+      <div className="flex size-11 items-center justify-center rounded-lg bg-[#ffc107] shadow-md">
+        <Layers3 className="size-6 text-[#161b22]" strokeWidth={2.5} />
+      </div>
+      <div className="leading-none">
+        <div className="login-display text-xl font-extrabold tracking-[0.16em] text-white">NORMAQ</div>
+        <div className="mt-1 text-xs font-semibold tracking-[0.28em] text-[#ffc107]">JCB</div>
+      </div>
+    </div>
+  );
+}
+
 function AuthPage() {
   const navigate = useNavigate();
+  const loginFn = useServerFn(login);
+  const forgotFn = useServerFn(forgotPassword);
+  const [mode, setMode] = useState<"signin" | "forgot">("signin");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [info, setInfo] = useState<string | null>(null);
-  const forgotFn = useServerFn(forgotPassword);
-  const loginFn = useServerFn(login);
+  const [busy, setBusy] = useState(false);
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      if (data.session) navigate({ to: "/inicio", replace: true });
-    });
-  }, [navigate]);
+    const previous = document.body.style.paddingBottom;
+    document.body.style.paddingBottom = "0";
+    return () => {
+      document.body.style.paddingBottom = previous;
+    };
+  }, []);
 
-  async function forgot() {
-    setError(null);
-    setInfo(null);
-    const u = username.trim().toLowerCase();
-    if (!u) return setError("Informe seu usuário para pedir a redefinição.");
-    if (!window.confirm("Pedir a redefinição de senha do usuário \"" + u + "\"? Um administrador precisa gerar a nova senha.")) return;
-    setLoading(true);
-    try {
-      await forgotFn({ data: { username: u } });
-      setInfo("Os administradores foram avisados. Procure um deles para receber a nova senha.");
-    } catch (e) {
-      setError(messageOf(e, "Não foi possível registrar o pedido."));
-    }
-    setLoading(false);
-  }
+  useEffect(() => {
+    let cancelled = false;
+    supabase.auth.getSession().then(({ data }) => {
+      if (cancelled) return;
+      if (data.session) navigate({ to: "/inicio", replace: true });
+      else setReady(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    setError(null);
-    const u = username.trim().toLowerCase();
-    if (!u || !password) return setError("Informe usuário e senha.");
-    setLoading(true);
+    if (mode === "forgot") {
+      await requestReset();
+      return;
+    }
+    const user = username.trim().toLowerCase();
+    if (!user || !password) {
+      toast.error("Informe usuário e senha.");
+      return;
+    }
+    setBusy(true);
     try {
-      const tokens = await loginFn({ data: { username: u, password } });
+      const tokens = await loginFn({ data: { username: user, password } });
       const { error: sessionError } = await supabase.auth.setSession({
         access_token: tokens.access_token,
         refresh_token: tokens.refresh_token,
       });
-      if (sessionError) throw new Error("Usuário ou senha inválidos.");
+      if (sessionError) throw new Error(sessionError.message);
+      toast.success("Bem-vindo de volta!");
       navigate({ to: "/inicio", replace: true });
-    } catch (e) {
-      setError(messageOf(e, "Usuário ou senha inválidos."));
+    } catch (error) {
+      toast.error(messageOf(error, "Usuário ou senha inválidos."));
+    } finally {
+      setBusy(false);
     }
-    setLoading(false);
   }
 
+  async function requestReset() {
+    const user = username.trim().toLowerCase();
+    if (!user) {
+      toast.error("Informe seu usuário.");
+      return;
+    }
+    setBusy(true);
+    try {
+      await forgotFn({ data: { username: user } });
+      toast.success("Se a conta estiver cadastrada, os administradores receberão sua solicitação.");
+      setMode("signin");
+      setPassword("");
+    } catch (error) {
+      toast.error(messageOf(error, "Não foi possível registrar o pedido."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!ready) return <div className="min-h-screen bg-[#0d1117]" />;
+
   return (
-    <div className="flex min-h-screen bg-[#EDEBE6]">
-      <aside className="relative hidden min-h-screen w-1/2 overflow-hidden lg:block">
-        <img src="/brand/JCB_LOGIN_FHD.webp" alt="" className="absolute inset-0 h-full w-full object-cover object-center" />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/25 to-black/10" />
-        <div className="relative z-10 flex h-full flex-col justify-end px-10 pb-12 text-white xl:px-14">
-          <div className="mb-7 w-fit rounded-md bg-white px-3 py-2">
-            <img src="/brand/LOGO_NMQ.png" alt="JCB NORMAQ" className="h-8 w-auto" />
+    <div className="login-screen relative flex min-h-screen flex-col bg-[#0d1117] lg:flex-row">
+      <div className="login-photo absolute inset-0" aria-hidden="true" />
+      <section className="relative z-[1] flex min-h-[680px] flex-col justify-between overflow-hidden px-6 py-8 text-white sm:px-10 lg:min-h-screen lg:w-[60%] lg:px-16 lg:py-10">
+        <BrandMark />
+        <div>
+          <p className="mb-4 text-xs font-bold tracking-[0.28em] text-[#ffc107] sm:text-sm">DEMANDA DE PEÇAS</p>
+          <h1 className="login-display max-w-xl text-4xl font-bold leading-[1.08] tracking-tight sm:text-5xl lg:text-6xl">Painel de Solicitação de Peças</h1>
+          <p className="mt-6 max-w-xl text-base leading-7 text-white/75 sm:text-lg">Registre peças procuradas pelos clientes e não encontradas no estoque para priorizar as compras da concessionária.</p>
+          <div className="mt-10 grid max-w-2xl gap-4 sm:grid-cols-3">
+            {highlights.map((item) => (
+              <div key={item.label} className="flex items-center gap-[0.65rem] pt-[0.85rem] text-[0.8rem] font-semibold" style={{ borderTop: "1px solid rgb(255 255 255 / 0.22)", color: "rgb(255 255 255 / 0.82)" }}>
+                <item.icon className="size-5 shrink-0 text-[#ffc107]" />
+                <span>{item.label}</span>
+              </div>
+            ))}
           </div>
-          <h1 className="text-[2.55rem] font-bold leading-[1.05] tracking-tight">
-            Painel de
-            <br />
-            <span className="text-[#F5B400]">Solicitação de Peças</span>
-          </h1>
-          <p className="mt-5 max-w-md text-[13.5px] leading-relaxed text-white/80">
-            Registre peças procuradas pelos clientes e não encontradas no estoque para priorizar as compras da concessionária.
+        </div>
+        <p className="text-xs text-white/65">Desenvolvido por Lucas Cruz | © 2026 NORMAQ - Todos os direitos reservados</p>
+      </section>
+      <section className="relative z-[1] flex min-h-screen items-center justify-center bg-transparent px-5 py-10 sm:px-8 lg:w-[40%] lg:px-12">
+        <div className="login-form-card login-glow-frame w-full max-w-[430px] rounded-2xl p-6 sm:p-9">
+          <BrandMark className="mb-8 lg:hidden" />
+          <p className="mb-2 text-xs font-semibold tracking-[0.2em] text-[#ffc107]">PORTAL CORPORATIVO</p>
+          <h2 className="login-display text-3xl font-bold tracking-tight text-white">{mode === "signin" ? "Acesso Restrito" : "Redefinir senha"}</h2>
+          <p className="mt-3 text-sm leading-6 text-[#9aa4b2]">
+            {mode === "signin"
+              ? "Entre com suas credenciais corporativas para acessar o painel."
+              : "Informe seu usuário. Os administradores receberão sua solicitação para redefinir o acesso."}
           </p>
-          <div className="mt-10 grid max-w-lg grid-cols-3 gap-6">
-            <div>
-              <div className="text-[15px] font-semibold">Estoque</div>
-              <div className="mt-0.5 text-[10px] font-medium uppercase tracking-[0.16em] text-white/60">Importado</div>
+          <form onSubmit={submit} className="mt-8 space-y-5">
+            <div className="space-y-2">
+              <Label htmlFor="usuario" className="text-xs font-semibold uppercase tracking-[0.12em] text-[#c7ced8]">Usuário</Label>
+              <div className="login-field">
+                <UserRound className="size-4 shrink-0 text-[#6c757d]" />
+                <Input id="usuario" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Digite seu usuário" autoComplete="username" required autoFocus />
+              </div>
             </div>
-            <div>
-              <div className="text-[15px] font-semibold">Demanda</div>
-              <div className="mt-0.5 text-[10px] font-medium uppercase tracking-[0.16em] text-white/60">Reprimida</div>
-            </div>
-            <div>
-              <div className="text-[15px] font-semibold">Relatório</div>
-              <div className="mt-0.5 text-[10px] font-medium uppercase tracking-[0.16em] text-white/60">de compra</div>
-            </div>
+            {mode === "signin" && (
+              <div className="space-y-2">
+                <Label htmlFor="senha" className="text-xs font-semibold uppercase tracking-[0.12em] text-[#c7ced8]">Senha</Label>
+                <div className="login-field">
+                  <LockKeyhole className="size-4 shrink-0 text-[#6c757d]" />
+                  <Input id="senha" value={password} onChange={(e) => setPassword(e.target.value)} type={showPassword ? "text" : "password"} autoComplete="current-password" minLength={6} required />
+                  <button type="button" className="text-[#6c757d] hover:text-[#ffc107]" aria-label={showPassword ? "Esconder senha" : "Mostrar senha"} onClick={() => setShowPassword((v) => !v)}>
+                    {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                  </button>
+                </div>
+              </div>
+            )}
+            <Button type="submit" className="login-submit w-full" disabled={busy}>
+              {busy ? <Loader2 className="animate-spin" /> : <ArrowRight />}
+              {mode === "signin" ? "Entrar no Painel" : "Solicitar reset aos administradores"}
+            </Button>
+            <button
+              type="button"
+              className="block w-full text-center text-sm text-[#ffc107] underline-offset-2 hover:text-white hover:underline"
+              onClick={() => {
+                setMode((current) => (current === "signin" ? "forgot" : "signin"));
+                setPassword("");
+              }}
+            >
+              {mode === "signin" ? "Esqueci minha senha" : "Voltar para o login"}
+            </button>
+          </form>
+          <div className="mt-8 border-t border-white/10 pt-5 text-center text-xs leading-5">
+            <p className="text-[#9aa4b2]">Portal de Solicitação de Peças <span className="text-[#d4a017]">•</span> Acesso monitorado</p>
+            <p className="text-[#6c757d]">(81) 3472-0039</p>
+            <p className="text-[#ffc107]">Desenvolvido por Lucas Cruz</p>
           </div>
         </div>
-      </aside>
-      <main className="flex min-h-screen w-full flex-col lg:w-1/2">
-        <div className="flex flex-1 items-center justify-center px-6 py-10">
-          <form onSubmit={submit} className="w-full max-w-[420px]">
-            <div className="mb-8 w-fit rounded-md bg-white px-3 py-2 lg:hidden">
-              <img src="/brand/LOGO_NMQ.png" alt="JCB NORMAQ" className="h-8 w-auto" />
-            </div>
-            <h2 className="text-[1.7rem] font-semibold tracking-tight text-neutral-900">Bem-vindo de volta</h2>
-            <p className="mt-1.5 text-[13.5px] text-neutral-500">Entre com suas credenciais para acessar o painel</p>
-            <div className="mt-8 space-y-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="u" className="text-[13px] text-neutral-800">Usuário</Label>
-                <div className="relative">
-                  <UserRound className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
-                  <Input id="u" className="h-11 border-neutral-300 bg-white pl-10 text-[14px]" autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} autoFocus />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="p" className="text-[13px] text-neutral-800">Senha</Label>
-                <div className="relative">
-                  <LockKeyhole className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
-                  <Input id="p" className="h-11 border-neutral-300 bg-white pl-10 pr-10 text-[14px]" type={showPassword ? "text" : "password"} autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
-                  <button type="button" onClick={() => setShowPassword((v) => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-700" aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}>
-                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
-                <div className="flex justify-end">
-                  <button type="button" onClick={forgot} disabled={loading} className="text-[12.5px] font-medium text-[#C58A00] hover:underline disabled:opacity-60">
-                    Esqueci minha senha
-                  </button>
-                </div>
-              </div>
-              {error && <p className="text-[12.5px] text-destructive">{error}</p>}
-              {info && <p className="text-[12.5px] text-neutral-700">{info}</p>}
-              <Button type="submit" className="h-11 w-full text-[15px] font-semibold" disabled={loading}>
-                {loading ? "Entrando…" : "Entrar no Sistema"}
-              </Button>
-            </div>
-          </form>
-        </div>
-        <p className="pb-6 text-center text-[11px] text-neutral-400">© 2026 NORMAQ JCB. Todos os direitos reservados.</p>
-      </main>
+      </section>
     </div>
   );
 }
